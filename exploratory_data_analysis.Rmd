@@ -1,0 +1,201 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+cases_raw <- read.csv("./data-truth/truth_RKI-Incident Cases by Age_Germany.csv")
+deaths_raw <- read.csv("./data-truth/truth_RKI-Incident Deaths by Age_Germany.csv")
+```
+
+```{r}
+names(cases_raw)
+names(deaths_raw)
+```
+```{r}
+# restrict to Germany and useful columns only
+cases <- subset(cases_raw, location_name=="Germany", select=c(date, age_group, value))
+deaths <- subset(deaths_raw, location_name=="Germany", select=c(date, age_group, value))
+
+# reset index
+row.names(cases) <- NULL
+row.names(deaths) <- NULL
+```
+
+## Basic analysis of time series data
+
+```{r}
+# get age groups
+unique(cases["age_group"])
+unique(deaths["age_group"])
+
+ags <- unname(unlist(unique(deaths["age_group"])))
+ags
+```
+
+```{r}
+head(cases)
+tail(cases)
+
+head(deaths)
+tail(deaths)
+
+# same time horizon : 2020-03-25 -> 2021-03-16
+
+dim(cases)
+dim(deaths)
+```
+
+### Why does number of entries differ by 399?
+
+```{r}
+length(unique(cases$date))
+length(unique(deaths$date))
+all(unique(deaths$date) == unique(cases$date))
+# same 357 dates
+
+start_date <- as.Date(cases$date[1])
+end_date <- as.Date(cases$date[dim(cases)[1]])
+end_date - start_date + 1 # == 357
+# all dates in horizon seem to be covered
+
+# guess: not every date contains all age strata; especially death data doesnt
+```
+
+
+```{r}
+# get time series in wide format / age groups in rows
+cases_wide <- setNames(reshape(cases, idvar="date", timevar="age_group", direction = "wide"), c("date", ags))
+deaths_wide <- setNames(reshape(deaths, idvar="date", timevar="age_group", direction = "wide"), c("date", ags))
+
+cases_wide$date <- as.Date(cases_wide$date)
+deaths_wide$date <- as.Date(deaths_wide$date)
+
+row.names(cases_wide) <- NULL
+row.names(deaths_wide) <- NULL
+```
+
+## Visual Exploration
+
+```{r}
+par(mfrow=c(2,1))
+colours <- 1:length(ags)
+line_width <- 2
+columns <- c(ags[3],ags[6])
+plot_type <- "l"
+
+matplot(cases_wide$date, cases_wide[,columns], 
+        pch=1, type=plot_type, lwd=line_width, col=colours, main="cases per age stratum")
+legend('topleft',legend=columns, col=colours, lwd=line_width)
+
+matplot(deaths_wide$date, deaths_wide[,columns], 
+        pch=1, type=plot_type, lwd=line_width, col=colours, main="deaths per age stratum")
+legend('topleft',legend=columns, col=colours, lwd=line_width)
+```
+```{r}
+# check NAs
+for (ag in ags){
+  print(any(is.na(cases_wide[,ag])))
+}
+
+for (ag in ags){
+  print(any(is.na(deaths_wide[,ag])))
+}
+
+# => NAs in death data
+```
+
+```{r}
+# replace NAs with zero
+cases_wide[is.na(cases_wide)] <- 0
+deaths_wide[is.na(deaths_wide)] <- 0
+```
+
+## explore lag between cases and deaths for stratum with highest case counts
+
+```{r}
+for (ag in ags){
+  print(sum(cases_wide[,ag]))
+  print(sum(deaths_wide[,ag]))
+  print("")
+} 
+# => ags[5] has many deaths and cases
+ags[5]
+```
+
+
+
+```{r}
+# get cases and deaths for one group in one frame
+age_group <- c("A60-A79")
+# case_death_group cdg
+cdg <- data.frame(cases_wide[,"date"], cases_wide[,age_group], deaths_wide[,age_group])
+colnames(cdg) <- c("date", paste("cases", age_group), paste("deaths", age_group))
+```
+
+```{r}
+# form 7-day sums
+rolling_sum <- function(ts, window=7){
+  w <- window 
+  len <- length(ts)
+  ts_ <- numeric(length=(len-w+1))
+  for(i in 1:(len-w+1)){
+    ts_[i] <- sum(ts[i:(i+w-1)])
+  }
+  return(ts_)
+}
+```
+
+```{r}
+cdg_rs <- data.frame(cdg[,"date"][-1:-6], rolling_sum(cdg[,2]), rolling_sum(cdg[,3]))
+colnames(cdg_rs) <- c("date", paste("cases rolsum", age_group), paste("deaths rolsum", age_group))
+```
+
+
+```{r}
+# calculate correlation between case/death time series
+cor(cdg[,2], cdg[,3])
+```
+
+```{r}
+lags <- 1:40
+len <- length(cdg_rs[,1])
+cors <- numeric(length=length(lags))
+for(l in lags){
+  # lag time series
+  lagged_cases <- cdg_rs[1:(len-l+1),2]
+  lagged_deaths <- cdg_rs[l:len,3]
+  cd_cor <- cor(lagged_cases, lagged_deaths)
+  cors[l] <- cd_cor
+  # print(paste("lag =", l, "cor =", cd_cor))
+}
+
+plot(lags, cors)
+max(cors)
+lags[which.max(cors)]
+```
+
+
+```{r}
+cors
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

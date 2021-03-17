@@ -10,9 +10,9 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
 * highly parameterized and readible code, easily modified 
     * age strata
 
-
 ## Questions
-* Are there age-stratified JHU data (EU-forecast hub)? Or only RKI?
+* What do negative case and death data mean? due to corrections
+* Is gender relevant? could be extracted and aggregated from direct RKI data
 
 ## Tasks
 * literature: 
@@ -20,8 +20,7 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
     * are there standard groups for age stratification?
     * Wie lange kommt die Hospitalisierung nach infection bzw. wie lange im krankenhaus?
 * exploratory data analysis:
-    * evalutate relation between cases and 
-
+    * evalutate relation between cases, hospitalization and deaths
 
 ## Knowledge
 * Atlantic Article:
@@ -35,5 +34,4 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
 * Zählverteilung, negative Binomialverteilung: mehr Varianz als EW in der Realität, Kopf-Zahl-Beispiel
 
 ## Further concerns
-* JHU Daten mismatch
-* 
+* mismatch JHU vs RKI data
