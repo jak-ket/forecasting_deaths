@@ -89,7 +89,6 @@ boxplot(deaths_wide[-1])
 
 
 ```{r}
-par(mfrow=c(2,1))
 colours <- 1:length(ags)
 line_width <- 2
 columns <- c(ags[3],ags[6])
@@ -268,8 +267,34 @@ for(col1 in colnames(divicd)[-1]){
 
 ```
 
+## forecasting deaths
+
+```{r}
+# forecasting deaths based on max_cor_lag and fatality rate
+# input: case time series, max_cor_lag, fat_rate, horizon
+# output: forecast of deaths for horizon time period from last observation in input series
+forecast_deaths <- function(cases, lag, fat_rate, horizon){
+  forecast <- numeric(length=horizon)
+  for(h in 1:horizon){
+    forecast[h] <- rolling_sum(cases[(length(cases)-lag+h)])/7 * fat_rate
+    cases <- c(cases, forecast[h])
+  }
+  return(forecast)
+}
+# TODO: 
+# calculate max_cor_lag and fat_rate based on a sliding window
+# output format: data frame with dates and col names
+# rolling sum of case number: params for window size
 
 
+```
+
+
+```{r}
+# test
+ag <- "A60-A79"
+fc <- forecast_deaths()
+```
 
 
 

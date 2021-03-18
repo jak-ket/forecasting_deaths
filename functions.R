@@ -54,6 +54,11 @@ max_cor_lag <- function(ts1, ts2, lags=10:40, plot_out=T,
 # calculate avg fatality rate: fr = death ts / case ts; both ts should be lagged
 # input: lagged death and case 
 # output: average fatality rate 
-calc_fat_rate <- function(deaths, cases){
-  return(mean(deaths/cases))
+calc_fat_rate <- function(deaths, cases, avg=T){
+  fat_rates <- deaths/cases
+  if(avg==T){
+    return(mean(fat_rates))
+  } else {
+    return(fat_rates)    
+  }
 }
