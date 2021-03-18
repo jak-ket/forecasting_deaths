@@ -23,15 +23,11 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
     * evalutate relation between cases, hospitalization and deaths
 
 ## Knowledge
-* Atlantic Article:
-    * am Anfang wurde zu wenig getestet
-    * key equation: deaths/cases = fatality rate
-    * bredford methode: 7-Tage Durchschnitt aktuelle deaths/7-Tage Durchschnitt Cases for 22 Tagen
-    * Kritik: lag stark variabel und eher niedriger
-    * Ensemble hatte am Ende aber eigentlich recht: maximal 4,000 Tote täglich, war im Konfidenzintervall drin 
-* Wochen gehen von So-Sa
-* 7 Tages Summen der Fallzahlen (7-Tage kumuliert), nicht mitteln
-* Zählverteilung, negative Binomialverteilung: mehr Varianz als EW in der Realität, Kopf-Zahl-Beispiel
+DIVI categories:
+* ICU - intensive care unit (low care and high care)
+* ECMO - Extracorporeal membrane oxygenation
+* Ventilated
 
-## Further concerns
+## Further concerns / problems
+* DIVI reporting delay: not all hospitals have reported during the first wave (approx. 20.03.2020 - 30.04.2020)
 * mismatch JHU vs RKI data

@@ -4,6 +4,11 @@ output: html_notebook
 ---
 
 ```{r}
+source("functions.R")
+```
+
+
+```{r}
 cases_raw <- read.csv("./data-truth/truth_RKI-Incident Cases by Age_Germany.csv")
 deaths_raw <- read.csv("./data-truth/truth_RKI-Incident Deaths by Age_Germany.csv")
 ```
@@ -78,6 +83,12 @@ row.names(deaths_wide) <- NULL
 ## Visual Exploration
 
 ```{r}
+boxplot(cases_wide[-1])
+boxplot(deaths_wide[-1])
+```
+
+
+```{r}
 par(mfrow=c(2,1))
 colours <- 1:length(ags)
 line_width <- 2
@@ -111,78 +122,151 @@ cases_wide[is.na(cases_wide)] <- 0
 deaths_wide[is.na(deaths_wide)] <- 0
 ```
 
-## explore lag between cases and deaths for stratum with highest case counts
+## explore cumulative death and case counts per stratum
 
 ```{r}
-for (ag in ags){
-  print(sum(cases_wide[,ag]))
-  print(sum(deaths_wide[,ag]))
-  print("")
+cases_ag_sum <- numeric(length = length(ags))
+deaths_ag_sum <- numeric(length = length(ags))
+
+for (i in 1:length(ags)){
+  cases_ag_sum[i] <- sum(cases_wide[,ags[i]])
+  deaths_ag_sum[i] <- sum(deaths_wide[,ags[i]])
 } 
-# => ags[5] has many deaths and cases
-ags[5]
+
+cd_sums <- data.frame(ags, cases_ag_sum, deaths_ag_sum)
+
+cd_sums
+
+# plot(cases_ag_sum)
+# xticks <- 1:length(ags)
+# axis(side=1, at=xticks, labels = FALSE)
+# text(x=xticks, labels=ags, pos=1, xpd=T, )
+# points(deaths_ag_sum, col="red")
+```
+## explore lag between cases and deaths 
+
+```{r}
+# whole time series
+source("functions.R")
+
+max_cor_lags <- numeric(length = length(ags))
+i <- 1
+for (ag in ags){
+  # prepare 7-day cumulated series
+  cases_rolsum <- rolling_sum(cases_wide[,ag])
+  deaths_rolsum <- rolling_sum(deaths_wide[,ag])
+  
+  # get lag that maximizes correlation between deaths and cases
+  plot_title <- paste("Correlation btw. lagged death and case series of ", ag)
+  lag <- max_cor_lag(cases_rolsum, deaths_rolsum, lags=10:50, plot_out=T, plot_title=plot_title)#, print_out=T)
+  max_cor_lags[i] <- lag
+  print(paste("age group: ", ag, " - lag maximizing cor: ", lag))
+  i <- i + 1
+} 
+```
+```{r}
+# split time series and analyze time dependence on lag with highest cor
+# 1:175 vs 176:351
+splits <- list("split1"=c(1:175), "split2"=c(176:351)) 
+
+source("functions.R")
+for (split in splits){
+  print(paste("Time Points: ", split[1], "-", split[length(split)]))
+  for (ag in ags){
+    # prepare 7-day cumulated series
+    cases_rolsum <- rolling_sum(cases_wide[,ag])[split]
+    deaths_rolsum <- rolling_sum(deaths_wide[,ag])[split]
+    
+    # get lag that maximizes correlation between deaths and cases
+    plot_title <- paste("Correlation btw. lagged death and case series of ", ag)
+    lag <- max_cor_lag(cases_rolsum, deaths_rolsum, lags=10:40, plot_out=T, plot_title=plot_title)#, print_out=T)
+    print(paste("age group: ", ag, " - lag maximizing cor: ", lag))
+  } 
+}
+
+# large differences in max cor lags between different splits
+
 ```
 
 
-
 ```{r}
-# get cases and deaths for one group in one frame
-age_group <- c("A60-A79")
-# case_death_group cdg
-cdg <- data.frame(cases_wide[,"date"], cases_wide[,age_group], deaths_wide[,age_group])
-colnames(cdg) <- c("date", paste("cases", age_group), paste("deaths", age_group))
+# calculate fatality rates per stratum based on whole time span
+source("functions.R")
+
+fat_rates <- numeric(length = length(ags))
+for (i in 1:length(ags)){
+  ag <- ags[i]
+  lag <- max_cor_lags[i]
+  
+  cases_rolsum <- rolling_sum(cases_wide[,ag])
+  deaths_rolsum <- rolling_sum(deaths_wide[,ag])
+  
+  lagged_ts <- get_lagged_ts(cases_rolsum, deaths_rolsum, lag=lag)
+  cases_rs_lagged <- lagged_ts[,1]
+  deaths_rs_lagged <- lagged_ts[,2]
+  
+  scale <- max(cases_rs_lagged)/max(deaths_rs_lagged)*0.5
+  plot(cases_rs_lagged/scale, main=paste("death/case series shifted by max_cor_lag for ", ag))
+  lines(deaths_rs_lagged)
+  
+  fat_rate <- calc_fat_rate(deaths_rs_lagged, cases_rs_lagged)
+  fat_rates[i] <- fat_rate
+  
+  print(paste("Age group: ", ag, "- Fatality rate: ", fat_rate))
+}
+
 ```
 
+## Explore alternative data sources
+
+### DIVI - Deutsche Interdisziplinäre Vereinigung für Intensiv- und Notfallmedizin
+* ICU
+* Ventilated
+
 ```{r}
-# form 7-day sums
-rolling_sum <- function(ts, window=7){
-  w <- window 
-  len <- length(ts)
-  ts_ <- numeric(length=(len-w+1))
-  for(i in 1:(len-w+1)){
-    ts_[i] <- sum(ts[i:(i+w-1)])
+# divi data
+divi_icu_raw <- read.csv("./data-truth/truth_DIVI-Current ICU_Germany.csv")
+divi_vent_raw <- read.csv("./data-truth/truth_DIVI-Current Ventilated_Germany.csv")
+
+# restrict to Germany and useful columns only
+divi_icu <- subset(divi_icu_raw, location_name=="Germany", select=c(date, value))
+divi_vent <- subset(divi_vent_raw, location_name=="Germany", select=c(date, value))
+divi_icu$date <- as.Date(divi_icu$date)
+divi_vent$date <- as.Date(divi_vent$date)
+
+colnames(divi_icu) <- c("date", "icu")
+colnames(divi_vent) <- c("date", "vent")
+
+divi <- merge(divi_icu, divi_vent, by="date")
+
+# calculate deaths and cases across age groups
+cases_sum <- data.frame(cases_wide$date, rowSums(cases_wide[,-1]))
+deaths_sum <- data.frame(deaths_wide$date, rowSums(deaths_wide[,-1]))
+colnames(cases_sum) <- c("date", "cases")
+colnames(deaths_sum) <- c("date", "deaths")
+
+cases_deaths <- merge(cases_sum, deaths_sum, by="date")
+
+# get divi data in same df as deaths and cases
+divicd <- merge(divi, cases_deaths, by="date")
+```
+
+
+```{r}
+source("functions.R")
+# look at all lag-correlations plots (exclude date column)
+
+for(col1 in colnames(divicd)[-1]){
+  for(col2 in colnames(divicd)[-1]){
+    if(col1 != col2){
+      title <- paste("Cor-lag plot between", col1, "and", col2)
+    max_cor_lag(divicd[,col1], divicd[,col2], lags=1:40, rolsum=T, window=7, plot_title = title) 
+    }
   }
-  return(ts_)
-}
-```
-
-```{r}
-cdg_rs <- data.frame(cdg[,"date"][-1:-6], rolling_sum(cdg[,2]), rolling_sum(cdg[,3]))
-colnames(cdg_rs) <- c("date", paste("cases rolsum", age_group), paste("deaths rolsum", age_group))
-```
-
-
-```{r}
-# calculate correlation between case/death time series
-cor(cdg[,2], cdg[,3])
-```
-
-```{r}
-lags <- 1:40
-len <- length(cdg_rs[,1])
-cors <- numeric(length=length(lags))
-for(l in lags){
-  # lag time series
-  lagged_cases <- cdg_rs[1:(len-l+1),2]
-  lagged_deaths <- cdg_rs[l:len,3]
-  cd_cor <- cor(lagged_cases, lagged_deaths)
-  cors[l] <- cd_cor
-  # print(paste("lag =", l, "cor =", cd_cor))
 }
 
-plot(lags, cors)
-max(cors)
-lags[which.max(cors)]
+
 ```
-
-
-```{r}
-cors
-```
-
-
-
-
 
 
 
