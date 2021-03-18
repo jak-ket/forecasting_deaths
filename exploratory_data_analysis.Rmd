@@ -216,6 +216,34 @@ for (i in 1:length(ags)){
 
 ```
 
+## fatality rate over time
+
+```{r}
+source("functions.R")
+
+window <- 7
+for (i in 1:length(ags)){
+  ag <- ags[i]
+  lag <- max_cor_lags[i]
+  
+  cases_rolsum <- rolling_sum(cases_wide[,ag], window = window)
+  deaths_rolsum <- rolling_sum(deaths_wide[,ag], window = window)
+  
+  lagged_ts <- get_lagged_ts(cases_rolsum, deaths_rolsum, lag=lag)
+  cases_rs_lagged <- lagged_ts[,1]
+  deaths_rs_lagged <- lagged_ts[,2]
+  
+  l <- dim(cases_wide)[1]
+  dates <- cases_wide[(l-length(cases_rs_lagged)+1):l,"date"]
+  title <- paste("Case fatality rate over time with median: group", ag, ", lag", lag)
+  frs <- calc_fat_rate(deaths_rs_lagged, cases_rs_lagged, avg=F)
+  plot(dates, frs, main=title, type="b")
+  abline(a=median(frs), b=0, col="red")
+}
+
+```
+
+
 ## Explore alternative data sources
 
 ### DIVI - Deutsche Interdisziplinäre Vereinigung für Intensiv- und Notfallmedizin
@@ -267,19 +295,36 @@ for(col1 in colnames(divicd)[-1]){
 
 ```
 
+
+
 ## forecasting deaths
 
 ```{r}
 # forecasting deaths based on max_cor_lag and fatality rate
 # input: case time series, max_cor_lag, fat_rate, horizon
 # output: forecast of deaths for horizon time period from last observation in input series
-forecast_deaths <- function(cases, lag, fat_rate, horizon){
-  forecast <- numeric(length=horizon)
+forecast_deaths <- function(cases, deaths, lag, horizon, window=7){
+  forecasts <- numeric(length=horizon)
+
+  # get rolled sums
+  cases_rolsum <- rolling_sum(cases, window = window)
+  deaths_rolsum <- rolling_sum(deaths, window = window)
+  
+  # calculate time varying case fatality rates
+  lagged_ts <- get_lagged_ts(cases_rolsum, deaths_rolsum, lag=lag)
+  cases_rs_lagged <- lagged_ts[,1]
+  deaths_rs_lagged <- lagged_ts[,2]
+  cfrs <- deaths_rs_lagged/cases_rs_lagged
+  
+  # take avg of last window fatality rates
+  cfr <- mean(cfrs[(length(cfrs)-window):length(cfrs)])
+  print(paste("Used case fatality rate cfr =", cfr))
+  
   for(h in 1:horizon){
-    forecast[h] <- rolling_sum(cases[(length(cases)-lag+h)])/7 * fat_rate
-    cases <- c(cases, forecast[h])
+    forecasts[h] <- cases_rolsum[(length(cases)-lag+h)]/window * cfr
+    cases <- c(cases, forecasts[h])
   }
-  return(forecast)
+  return(forecasts)
 }
 # TODO: 
 # calculate max_cor_lag and fat_rate based on a sliding window
@@ -292,10 +337,14 @@ forecast_deaths <- function(cases, lag, fat_rate, horizon){
 
 ```{r}
 # test
-ag <- "A60-A79"
-fc <- forecast_deaths()
+ag_nr <- 5
+ag <- ags[ag_nr]
+fc <- forecast_deaths(cases_wide[,ag], deaths_wide[,ag], lag=max_cor_lags[ag_nr], horizon=10, window=7)
 ```
 
+```{r}
+plot(c(deaths_wide[340:l,ag], fc))
+```
 
 
 
