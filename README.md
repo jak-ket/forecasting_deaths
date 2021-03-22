@@ -20,10 +20,18 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
     
 
 ## Questions
+* Are there explicit formulations for nb distr. params? Would speed up optimization!
 * What do negative case and death data mean? due to corrections
 * Is gender relevant? could be extracted and aggregated from direct RKI data
 
 ## Tasks
+* paper section 2
+* functions for with 1 covariable (lagged cases), deaths, estimate fat_rates
+* minimize wis with lag, fat_rate, size (Überdispersion) param for one age group
+* take lag and fat_rate to estimate aggregate estimated value for second size param for dispersion 
+* param: number of days for sum
+* prediction distribution per age group -> for all age groups
+
 * subset >sep.2020 approx.
 * research time hosp -> death (Daniel: data driven RKI)
 * unbekannt category
@@ -31,9 +39,15 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
 * literature: 
     * how ist lag length between causal relation between cases and deaths decided?
     * are there standard groups for age stratification?
-    * Wie lange kommt die Hospitalisierung nach infection bzw. wie lange im krankenhaus?
+    * delay time distributions between exposure, symptom onset, reporting of case, hospizalization, death in Germany
 * exploratory data analysis:
     * evalutate relation between cases, hospitalization and deaths
+
+Exploratory analyses:
+- Generate age-stratified plots of cases, hospitalizations (DIVI) and deaths
+- Are clear "shifted" patterns recognizable?
+- Literature search on delay time distributions between exposure, symptom onset, reporting of case, hospizalization, death in Germany
+- Look for codes accompanying the article from the Atlantic
 
 ## Knowledge
 DIVI categories:

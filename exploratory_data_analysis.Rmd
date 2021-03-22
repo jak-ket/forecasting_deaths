@@ -299,11 +299,13 @@ for(col1 in colnames(divicd)[-1]){
 
 ## forecasting deaths
 
+### naive non-probabilistic approach
+
 ```{r}
 # forecasting deaths based on max_cor_lag and fatality rate
 # input: case time series, max_cor_lag, fat_rate, horizon
 # output: forecast of deaths for horizon time period from last observation in input series
-forecast_deaths <- function(cases, deaths, lag, horizon, window=7){
+forecast_deaths_naive <- function(cases, deaths, lag, horizon, window=7){
   forecasts <- numeric(length=horizon)
 
   # get rolled sums
@@ -322,7 +324,6 @@ forecast_deaths <- function(cases, deaths, lag, horizon, window=7){
   
   for(h in 1:horizon){
     forecasts[h] <- cases_rolsum[(length(cases)-lag+h)]/window * cfr
-    cases <- c(cases, forecasts[h])
   }
   return(forecasts)
 }
@@ -339,13 +340,80 @@ forecast_deaths <- function(cases, deaths, lag, horizon, window=7){
 # test
 ag_nr <- 5
 ag <- ags[ag_nr]
-fc <- forecast_deaths(cases_wide[,ag], deaths_wide[,ag], lag=max_cor_lags[ag_nr], horizon=10, window=7)
+fc <- forecast_deaths_naive(cases_wide[,ag], deaths_wide[,ag], lag=max_cor_lags[ag_nr], horizon=10, window=7)
 ```
 
 ```{r}
 plot(c(deaths_wide[340:l,ag], fc))
 ```
+### probabilistic approach
 
+```{r}
+
+```
+
+
+```{r}
+# only use data from September on due to instability before
+start <- as.Date("2020-09-01")
+cases_sept <- cases_wide[cases_wide[,"date"]>=start,]
+deaths_sept <- deaths_wide[deaths_wide[,"date"]>=start,]
+
+# params
+ag_nr <- 5 # age group
+ag <- ags[ag_nr]
+lags <- 10:30
+window <- 7
+
+# subset date and age group
+cases_ <- cases_sept[,c("date",ag)]
+deaths_ <- deaths_sept[,c("date",ag)]
+
+# compute rolling sums; first window-1 dates are excluded
+start_after_rolsum <- start+window-1
+cases_[cases_[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(cases_[,ag], window = window)
+deaths_[deaths_[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(deaths_[,ag], window = window)
+cases_ <- cases_[cases_[,"date"]>=(start_after_rolsum),]
+deaths_ <- deaths_[deaths_[,"date"]>=(start_after_rolsum),]
+
+
+obj_values <- numeric(length = length(lags)) # save objective value per lag
+
+# for (lag in lags){
+lag <- 1
+  # based on current lag values, compute feasible death forecast Saturdays
+  saturdays <- weekdays(deaths_[deaths_[,"date"] >= (start_after_rolsum+lag),"date"]) == "Samstag"
+  deaths_lag_sat <- deaths_[saturdays,]
+  
+  # compute lagged cases
+  cases_lag_dates <- deaths_lag_sat[,"date"]-lag
+  cases_lag <- cases_[cases_[,"date"] %in% cases_lag_dates,]
+  
+  # cfr = case fatality rate
+  mu = cfr * cases_lag
+  
+  objfun <- function(par){
+    
+  }
+  
+  # optimize
+  opt <- optim(par = c(log_mu = log_mu_start, log_size = log_size_start, cfr = cfr_start), fn = objfun)
+  
+
+
+best_lag <- lags[which.min(obj_values)] # TODO: min or max?
+```
+
+
+```{r}
+# 
+ag_nr <- 5 # age group
+ag <- ags[ag_nr]
+
+lags <- 10:30
+
+fc <- forecast_deaths_naive(cases_wide[,ag], deaths_wide[,ag], lag=max_cor_lags[ag_nr], horizon=10, window=7)
+```
 
 
 
