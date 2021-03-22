@@ -162,8 +162,7 @@ for (ag in ags){
   print(paste("age group: ", ag, " - lag maximizing cor: ", lag))
   i <- i + 1
 } 
-```
-```{r}
+
 # split time series and analyze time dependence on lag with highest cor
 # 1:175 vs 176:351
 splits <- list("split1"=c(1:175), "split2"=c(176:351)) 
@@ -349,7 +348,59 @@ plot(c(deaths_wide[340:l,ag], fc))
 ### probabilistic approach
 
 ```{r}
+#' Evaluate WIS of a negative binomial distribution
+#' @param x the vector of observations
+#' @param size the vector of size parameters of the negative binomial distribution
+#' @param mu the vector of expectations of the negative binomial distribution
+#' @param p the vector of quantile levels used in the computation of the WIS
+wis_nb <- function(x, size, mu, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+  # check input
+  if(any(mu <= 0) | any(size <= 0)) stop("mu and size need to be positive.")
+  if(length(mu) == 1) mu <- rep(mu, length(x))
+  if(length(size) == 1) size <- rep(size, length(x))
+  if(length(mu) != length(x) | length(size) != length(x)) stop("mu and size need to be either of length 1 or the same length as x.")  
+  # function to evaluate wis for x[i] and parameters mu[i] and size[i]
+  wis_nb.i <- function(i){
+    # compute quantiles
+    q <- qnbinom(p, mu = mu[i], size = size[i])
+    # evaluate WIS (see eq 4 here https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1008618#sec001)
+    mean(2*((x[i] <= q) - p)*(q - x[i]))
+  }  
+  # apply to vector
+  sapply(seq_along(x), wis_nb.i)
+}
+```
 
+```{r}
+fit_params <- function(cases_lagged, deaths_truth, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+    
+  wis_sum <- function(par){
+    size <- par["size"]
+    cfr <- par["cfr"]
+
+    # estimate deaths with case fatality rate (cfr)
+    deaths_pred = cfr * cases_lagged
+    
+    sum(wis_nb(x = deaths_truth, mu = deaths_pred, size = size, p = p))
+  }
+  
+  # optimize
+  # initial values
+  size_start <- 3
+  cfr_start <- 0.1
+  # lower bounds
+  lb_size <- 0.0001
+  lb_cfr <- 0
+  lower_bounds <- c(lb_size,lb_cfr)
+  # upper bounds
+  # ub_size <- 
+  # ub_cfr <- 
+  opt <- optim(par = c(size = size_start, cfr = cfr_start), lower=lower_bounds, fn = wis_sum)
+  
+  names(par) <-  # re-name elements  
+  
+  return(list(par = par, opt = opt))
+}
 ```
 
 
@@ -377,31 +428,36 @@ cases_ <- cases_[cases_[,"date"]>=(start_after_rolsum),]
 deaths_ <- deaths_[deaths_[,"date"]>=(start_after_rolsum),]
 
 
-obj_values <- numeric(length = length(lags)) # save objective value per lag
+# save param values and objective value per lag
+params <- matrix(data = NA, nrow=length(lags), ncol=length(param_names)) 
+param_names <- c("size", "cfr")
+colnames(params) <- param_names
 
-# for (lag in lags){
-lag <- 1
+optvals <- numeric(length = length(lags)) 
+
+
+# for (i in 1:length(lags)){
+  # lag <- lags[i]
+  lag <- 1
   # based on current lag values, compute feasible death forecast Saturdays
   saturdays <- weekdays(deaths_[deaths_[,"date"] >= (start_after_rolsum+lag),"date"]) == "Samstag"
-  deaths_lag_sat <- deaths_[saturdays,]
+  deaths_sat <- deaths_[saturdays,]
   
   # compute lagged cases
-  cases_lag_dates <- deaths_lag_sat[,"date"]-lag
-  cases_lag <- cases_[cases_[,"date"] %in% cases_lag_dates,]
+  cases_lagged_dates <- deaths_sat[,"date"]-lag
+  cases_lagged <- cases_[cases_[,"date"] %in% cases_lagged_dates,]
   
-  # cfr = case fatality rate
-  mu = cfr * cases_lag
+  # get time series without dates
+  deaths_sat_ts <- deaths_sat[,ag]
+  cases_lagged_ts <- cases_lagged[,ag]
   
-  objfun <- function(par){
-    
-  }
-  
-  # optimize
-  opt <- optim(par = c(log_mu = log_mu_start, log_size = log_size_start, cfr = cfr_start), fn = objfun)
-  
+  res <- fit_params(cases_lagged_ts, deaths_sat_ts)
+  res
+  # params[i,] <- unname(res$par)
+  # optvals[i] <- res$opt
 
 
-best_lag <- lags[which.min(obj_values)] # TODO: min or max?
+# best_lag <- lags[which.min(obj_values)] # TODO: min or max?
 ```
 
 

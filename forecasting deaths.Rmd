@@ -1,0 +1,127 @@
+---
+title: "Forecasting deaths"
+output: html_notebook
+---
+
+
+```{r}
+source("functions.R")
+```
+
+## prepare data
+
+```{r}
+cases_raw <- read.csv("./data-truth/truth_RKI-Incident Cases by Age_Germany.csv")
+deaths_raw <- read.csv("./data-truth/truth_RKI-Incident Deaths by Age_Germany.csv")
+
+# restrict to Germany and useful columns only
+cases <- subset(cases_raw, location_name=="Germany", select=c(date, age_group, value))
+deaths <- subset(deaths_raw, location_name=="Germany", select=c(date, age_group, value))
+
+# reset index
+row.names(cases) <- NULL
+row.names(deaths) <- NULL
+
+# get age groups
+ags_full <- unname(unlist(unique(deaths["age_group"])))
+ags_full
+
+# get time series in wide format / age groups in rows
+cases_wide <- setNames(reshape(cases, idvar="date", timevar="age_group", direction = "wide"), c("date", ags))
+deaths_wide <- setNames(reshape(deaths, idvar="date", timevar="age_group", direction = "wide"), c("date", ags))
+
+cases_wide$date <- as.Date(cases_wide$date)
+deaths_wide$date <- as.Date(deaths_wide$date)
+
+row.names(cases_wide) <- NULL
+row.names(deaths_wide) <- NULL
+```
+
+```{r}
+# restrict on dates and age group
+ags <- ags_full[4:6]
+start <- as.Date("2020-09-01")
+
+cases_wide <- cases_wide[cases_wide[,"date"]>=start, cbind("date", ags)]
+deaths_wide <- deaths_wide[deaths_wide[,"date"]>=start, cbind("date", ags)]
+```
+
+## explore lag between cases and deaths 
+
+```{r}
+source("functions.R")
+
+max_cor_lags <- numeric(length = length(ags))
+i <- 1
+
+for (ag in ags){
+  # prepare 7-day cumulated series
+  cases_rolsum <- rolling_sum(cases_wide[,ag])
+  deaths_rolsum <- rolling_sum(deaths_wide[,ag])
+  
+  # get lag that maximizes correlation between deaths and cases
+  plot_title <- paste("Correlation btw. lagged death and case series of ", ag)
+  lag <- max_cor_lag(cases_rolsum, deaths_rolsum, lags=10:30, plot_out=T, plot_title=plot_title)#, print_out=T)
+  max_cor_lags[i] <- lag
+  print(paste("age group: ", ag, " - lag maximizing cor: ", lag))
+  i <- i + 1
+} 
+```
+
+
+## plot shifted case / death time series
+
+```{r}
+source("functions.R")
+
+fat_rates <- numeric(length = length(ags))
+for (i in 1:length(ags)){
+  ag <- ags[i]
+  lag <- max_cor_lags[i]
+  
+  cases_rolsum <- rolling_sum(cases_wide[,ag])
+  deaths_rolsum <- rolling_sum(deaths_wide[,ag])
+  
+  lagged_ts <- get_lagged_ts(cases_rolsum, deaths_rolsum, lag=lag)
+  cases_rs_lagged <- lagged_ts[,1]
+  deaths_rs_lagged <- lagged_ts[,2]
+  
+  scale <- max(cases_rs_lagged)/max(deaths_rs_lagged)*0.5
+  plot(cases_rs_lagged/scale, main=paste("death/case series shifted by max_cor_lag for ", ag))
+  lines(deaths_rs_lagged)
+}
+```
+
+
+## fatality rate over time
+
+```{r}
+source("functions.R")
+
+window <- 7
+for (i in 1:length(ags)){
+  ag <- ags[i]
+  lag <- max_cor_lags[i]
+  
+  cases_rolsum <- rolling_sum(cases_wide[,ag], window = window)
+  deaths_rolsum <- rolling_sum(deaths_wide[,ag], window = window)
+  
+  lagged_ts <- get_lagged_ts(cases_rolsum, deaths_rolsum, lag=lag)
+  cases_rs_lagged <- lagged_ts[,1]
+  deaths_rs_lagged <- lagged_ts[,2]
+  
+  l <- dim(cases_wide)[1]
+  dates <- cases_wide[(l-length(cases_rs_lagged)+1):l,"date"]
+  title <- paste("Case fatality rate over time with median: group", ag, ", lag", lag)
+  frs <- calc_fat_rate(deaths_rs_lagged, cases_rs_lagged, avg=F)
+  plot(dates, frs, main=title, type="b")
+  abline(a=median(frs), b=0, col="red")
+}
+```
+
+
+
+
+
+
+
