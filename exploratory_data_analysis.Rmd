@@ -355,6 +355,7 @@ plot(c(deaths_wide[340:l,ag], fc))
 #' @param p the vector of quantile levels used in the computation of the WIS
 wis_nb <- function(x, size, mu, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
   # check input
+  # print(paste(length(x), length(size), length(mu)))
   if(any(mu <= 0) | any(size <= 0)) stop("mu and size need to be positive.")
   if(length(mu) == 1) mu <- rep(mu, length(x))
   if(length(size) == 1) size <- rep(size, length(x))
@@ -387,7 +388,7 @@ fit_params <- function(cases_lagged, deaths_truth, p = c(0.01, 0.025, 1:19/20, 0
   # optimize
   # initial values
   size_start <- 3
-  cfr_start <- 0.1
+  cfr_start <- 0.05
   # lower bounds
   lb_size <- 0.0001
   lb_cfr <- 0
@@ -395,11 +396,9 @@ fit_params <- function(cases_lagged, deaths_truth, p = c(0.01, 0.025, 1:19/20, 0
   # upper bounds
   # ub_size <- 
   # ub_cfr <- 
-  opt <- optim(par = c(size = size_start, cfr = cfr_start), lower=lower_bounds, fn = wis_sum)
-  
-  names(par) <-  # re-name elements  
-  
-  return(list(par = par, opt = opt))
+  opt <- optim(par = c(size = size_start, cfr = cfr_start), method="L-BFGS-B", lower=lower_bounds, fn = wis_sum)
+
+  return(opt)
 }
 ```
 
@@ -429,19 +428,16 @@ deaths_ <- deaths_[deaths_[,"date"]>=(start_after_rolsum),]
 
 
 # save param values and objective value per lag
-params <- matrix(data = NA, nrow=length(lags), ncol=length(param_names)) 
 param_names <- c("size", "cfr")
-colnames(params) <- param_names
+results <- matrix(data = NA, nrow=length(lags), ncol=1+length(param_names)+1) 
+colnames(results) <- c("lag", param_names, "value")
 
-optvals <- numeric(length = length(lags)) 
+for (i in 1:length(lags)){
+  lag <- lags[i]
 
-
-# for (i in 1:length(lags)){
-  # lag <- lags[i]
-  lag <- 1
   # based on current lag values, compute feasible death forecast Saturdays
-  saturdays <- weekdays(deaths_[deaths_[,"date"] >= (start_after_rolsum+lag),"date"]) == "Samstag"
-  deaths_sat <- deaths_[saturdays,]
+  saturdays <- weekdays(deaths_[,"date"]) == "Samstag"
+  deaths_sat <- deaths_[saturdays & deaths_[,"date"] >= (start_after_rolsum+lag),]
   
   # compute lagged cases
   cases_lagged_dates <- deaths_sat[,"date"]-lag
@@ -451,13 +447,47 @@ optvals <- numeric(length = length(lags))
   deaths_sat_ts <- deaths_sat[,ag]
   cases_lagged_ts <- cases_lagged[,ag]
   
+  stopifnot(length(cases_lagged_ts) == length(deaths_sat_ts))
+  
+  # compute parameters
   res <- fit_params(cases_lagged_ts, deaths_sat_ts)
-  res
-  # params[i,] <- unname(res$par)
-  # optvals[i] <- res$opt
+  
+  # save results
+  results[i,] <- c(lag, res$par, res$value)
+}
+
+overall_results <- results[which.min(results[,"value"]),]
 
 
-# best_lag <- lags[which.min(obj_values)] # TODO: min or max?
+# calculate death distribution forecast for given date  
+death_forecast <- function(cases_rolsum, fc_date, params, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+  # cases_rolsum <- cases_
+  
+  lag <- params[1]
+  size <- params[2]
+  cfr <- params[3]
+  
+  # get lagged case count
+  end_date <- cases_rolsum[dim(cases_rolsum)[1],"date"]
+  lag_date <- as.Date(fc_date) - lag
+  stopifnot(lag_date <= end_date)
+  case_count <- cases_rolsum[cases_rolsum[,"date"]==lag_date,ag]
+  ag
+  # compute death forecast
+  mu <- cfr * case_count
+  
+  # get quantiles according to estimated negative binomial distribution
+  q <- qnbinom(p, mu = mu, size = size)
+  
+  return(q)
+}
+
+params <- unname(overall_results[-length(overall_results)])
+
+fc_date <- "2021-01-01"
+
+death_forecast(cases_, fc_date, params)
+
 ```
 
 
