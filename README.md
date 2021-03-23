@@ -25,29 +25,27 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
 * Is gender relevant? could be extracted and aggregated from direct RKI data
 
 ## Tasks
-* paper section 2
-* functions for with 1 covariable (lagged cases), deaths, estimate fat_rates
-* minimize wis with lag, fat_rate, size (Überdispersion) param for one age group
-* take lag and fat_rate to estimate aggregate estimated value for second size param for dispersion 
-* param: number of days for sum
-* prediction distribution per age group -> for all age groups
-
-* subset >sep.2020 approx.
-* research time hosp -> death (Daniel: data driven RKI)
-* unbekannt category
-* fat_rate über Zeit plotten
+* time series: exclude christmas 20.12.2020-22.1.
+* aggregate age stratified forecasts: can take mean of mu, but have to estimate size
+* backtesting and comparison with predictions of other models
+* how to handle unbekannt category?
 * literature: 
     * how ist lag length between causal relation between cases and deaths decided?
     * are there standard groups for age stratification?
-    * delay time distributions between exposure, symptom onset, reporting of case, hospizalization, death in Germany
-* exploratory data analysis:
-    * evalutate relation between cases, hospitalization and deaths
+    * delay time distributions between exposure, symptom onset, reporting of case,
+    hospizalization, death in Germany
+    * research time hosp -> death (Daniel: data driven RKI)
 
+## Done
+* subset >sep.2020 approx.
+* fat_rate über Zeit plotten
+* paper section 2
+* functions for with 1 covariable (lagged cases), deaths, estimate fat_rates
+* minimize wis with lag, fat_rate, size (Überdispersion) param for one age group
 Exploratory analyses:
 - Generate age-stratified plots of cases, hospitalizations (DIVI) and deaths
 - Are clear "shifted" patterns recognizable?
-- Literature search on delay time distributions between exposure, symptom onset, reporting of case, hospizalization, death in Germany
-- Look for codes accompanying the article from the Atlantic
+* exploratory data analysis: evalutate relation between cases, hospitalization and deaths
 
 ## Knowledge
 DIVI categories:

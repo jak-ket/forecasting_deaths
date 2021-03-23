@@ -126,14 +126,28 @@ lags <- 10:35
 # window for rolling sum (smoothing)
 window <- 7
 # select training period 
-start <- as.Date("2020-12-01")
-
-end <- NA # give exact date or NA to choose end of time series
-
+start <- as.Date("2020-11-01")
+end <- as.Date("2021-01-31") #NA # give exact date or NA to choose end of time series
+# exclude sequence of dates
+start_exclude <- as.Date("2020-12-20")
+end_exclude <- as.Date("2021-01-22")
 ############################
 
-# truncate data for training period
+
 if(is.na(end)){end <- cases_wide[dim(cases_wide)[1],"date"]}
+
+# sanity checks
+if(end<=start){stop("start of training period must be before end of training period")}
+training_period <- seq(start, end, by="days")
+
+if(end_exclude<=start_exclude){stop("start of excluded period must be before end of excluded period")}
+dates_excluded <- seq(start_exclude, end_exclude, by="days")
+
+if(!all(dates_excluded %in% training_period)){stop("not all dates to exclude are contained in training period")}
+
+# TODO: remove dates_excluded from training_period and filter data accordingly
+
+# truncate data for training period
 cases_trunc <- cases_wide[cases_wide[,"date"]>=start & cases_wide[,"date"]<=end,]
 deaths_trunc <- deaths_wide[deaths_wide[,"date"]>=start & deaths_wide[,"date"]<=end,]
 
@@ -221,7 +235,7 @@ death_forecast <- function(cases_rolsum, fc_date, params, p = c(0.01, 0.025, 1:1
 
 # test forecast
 params <- unname(overall_results[-length(overall_results)])
-fc_date <- "2021-04-03"
+fc_date <- "2021-02-06"
 fc <- death_forecast(cases_, fc_date, params)
 fc
 
@@ -231,23 +245,37 @@ fc
 ```{r}
 # visualize forecast
 
-plot(cases_, main="Cases")
-plot(deaths_, main="Deaths")
+# plot(cases_, main="Cases")
+# plot(deaths_, main="Deaths")
 
-deaths_w_fc <- rbind(deaths_, c(fc_date, fc["0.5"]))
+# truth death data: from start_after_rolsum - fc_date
+deaths_truth <- deaths_wide[deaths_wide[,"date"] >= start &  deaths_wide[,"date"] <= fc_date,c("date",ag)]
+deaths_truth[deaths_truth[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(deaths_truth[,ag], window = window)
+
+# deaths_w_fc <- rbind(deaths_, c(fc_date, fc["0.5"]))
 dates_ <- c(deaths_[dim(deaths_)[1],"date"], fc_date)
 upper_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.99"])
 lower_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.01"])
 
-plot(deaths_w_fc, ylim=c(min(0, fc["0.01"]), max(as.integer(max(deaths_[,ag])), fc["0.99"])), main="Deaths with forecast")
+plot(deaths_truth, ylim=c(min(0, fc["0.01"]), max(as.integer(max(deaths_[,ag])), fc["0.99"])), main=paste(ag, "Death forecast for", fc_date, "based on data until", end), type="l", ylab="")
 points(as.Date(fc_date), fc["0.5"], col="red")
 points(as.Date(fc_date), fc["0.01"], col="red")
 points(as.Date(fc_date), fc["0.99"], col="red")
 poly_dates <- c(deaths_[dim(deaths_)[1],"date"], fc_date, fc_date)
 poly_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.99"], fc["0.01"])
-polygon(poly_dates, poly_values, col="darksalmon", border = FALSE)
+polygon(poly_dates, poly_values, col=adjustcolor("red",alpha.f=0.2) , border = FALSE)
 lines(dates_, upper_values, col="red")
 lines(dates_, lower_values, col="red")
+
+# add shifted cases
+lag <- params[1]
+cases_truth <- cases_wide[cases_wide[,"date"] >= (start-lag) & cases_wide[,"date"] <= (as.Date(fc_date)-lag),c("date",ag)]
+cases_truth[cases_truth[,"date"]>=(start_after_rolsum-lag),ag] <- rolling_sum(cases_truth[,ag], window = window)
+
+scale <- max(deaths_truth[,ag])/max(cases_truth[,ag])*0.5
+lines(cases_truth[,"date"]+lag, cases_truth[,ag]*scale, col="blue")
+
+legend('topleft',legend=c("True deaths", paste("True cases lagged by",lag)), col=c("black", "blue"), lwd=c(1,1))
 
 ```
 
