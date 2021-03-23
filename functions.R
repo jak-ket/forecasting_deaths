@@ -153,3 +153,31 @@ fit_nb_wis <- function(x, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
 # fit_glm.nb <- glm.nb(x ~ 1, link = "identity")
 # summary(fit_glm.nb)# fit using out min WIS function:
 # fit_nb_wis(x)
+
+fit_params <- function(cases_lagged, deaths_truth, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+  
+  wis_sum <- function(par){
+    size <- par["size"]
+    cfr <- par["cfr"]
+    
+    # estimate deaths with case fatality rate (cfr)
+    deaths_pred = cfr * cases_lagged
+    
+    sum(wis_nb(x = deaths_truth, mu = deaths_pred, size = size, p = p))
+  }
+  
+  # optimize
+  # initial values
+  size_start <- 3
+  cfr_start <- 0.05
+  # lower bounds
+  lb_size <- 10^-6
+  lb_cfr <- 10^-6
+  lower_bounds <- c(lb_size,lb_cfr)
+  # upper bounds
+  # ub_size <- 
+  # ub_cfr <- 
+  opt <- optim(par = c(size = size_start, cfr = cfr_start), method="L-BFGS-B", lower=lower_bounds, fn = wis_sum)
+  
+  return(opt)
+}
