@@ -26,12 +26,12 @@ row.names(cases) <- NULL
 row.names(deaths) <- NULL
 
 # get age groups
-ags <- unname(unlist(unique(deaths["age_group"])))
-ags
+age_groups <- unname(unlist(unique(deaths["age_group"])))
+age_groups
 
 # get time series in wide format / age groups in rows
-cases_wide <- setNames(reshape(cases, idvar="date", timevar="age_group", direction = "wide"), c("date", ags))
-deaths_wide <- setNames(reshape(deaths, idvar="date", timevar="age_group", direction = "wide"), c("date", ags))
+cases_wide <- setNames(reshape(cases, idvar="date", timevar="age_group", direction = "wide"), c("date", age_groups))
+deaths_wide <- setNames(reshape(deaths, idvar="date", timevar="age_group", direction = "wide"), c("date", age_groups))
 
 cases_wide$date <- as.Date(cases_wide$date)
 deaths_wide$date <- as.Date(deaths_wide$date)
@@ -39,6 +39,13 @@ deaths_wide$date <- as.Date(deaths_wide$date)
 row.names(cases_wide) <- NULL
 row.names(deaths_wide) <- NULL
 ```
+
+```{r}
+matplot(cases_wide[-1:-150,"date"], cases_wide[-1:-150,ag], type="l")
+matplot(deaths_wide[-1:-150,"date"], deaths_wide[-1:-150,ag], type="l")
+
+```
+
 
 ## forecast deaths
 
@@ -115,102 +122,209 @@ fit_params <- function(cases_lagged, deaths_truth, init_values, p = c(0.01, 0.02
 
 
 ```{r}
+boxplot(cases_wide[-1:-150,2:dim(cases_wide)[2]], main="cases sep-mar")
+boxplot(deaths_wide[-1:-150,2:dim(cases_wide)[2]], main="deaths sep-mar")
 
-## parameters ##############
-
-# age group
-ag_nr <- 6
-ag <- ags[ag_nr]
-# set of lags to optimize over
-lags <- 10:35
-# window for rolling sum (smoothing)
-window <- 7
-# select training period 
-start <- as.Date("2020-11-01")
-end <- as.Date("2021-01-31") #NA # give exact date or NA to choose end of time series
-# exclude sequence of dates
-start_exclude <- as.Date("2020-12-20")
-end_exclude <- as.Date("2021-01-22")
-############################
-
-
-if(is.na(end)){end <- cases_wide[dim(cases_wide)[1],"date"]}
-
-# sanity checks
-if(end<=start){stop("start of training period must be before end of training period")}
-training_period <- seq(start, end, by="days")
-
-if(end_exclude<=start_exclude){stop("start of excluded period must be before end of excluded period")}
-dates_excluded <- seq(start_exclude, end_exclude, by="days")
-
-if(!all(dates_excluded %in% training_period)){stop("not all dates to exclude are contained in training period")}
-
-# TODO: remove dates_excluded from training_period and filter data accordingly
-
-# truncate data for training period
-cases_trunc <- cases_wide[cases_wide[,"date"]>=start & cases_wide[,"date"]<=end,]
-deaths_trunc <- deaths_wide[deaths_wide[,"date"]>=start & deaths_wide[,"date"]<=end,]
-
-# subset date and age group
-cases_ <- cases_trunc[,c("date",ag)]
-deaths_ <- deaths_trunc[,c("date",ag)]
-
-# compute rolling sums; first window-1 dates are excluded
-start_after_rolsum <- start+window-1
-cases_[cases_[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(cases_[,ag], window = window)
-deaths_[deaths_[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(deaths_[,ag], window = window)
-cases_ <- cases_[cases_[,"date"]>=(start_after_rolsum),]
-deaths_ <- deaths_[deaths_[,"date"]>=(start_after_rolsum),]
-
-
-# save param values and objective value per lag
-param_names <- c("size", "cfr")
-results <- matrix(data = NA, nrow=length(lags), ncol=1+length(param_names)+1) 
-colnames(results) <- c("lag", param_names, "value")
-
-for (i in 1:length(lags)){
-  lag <- lags[i]
-
-  # based on current lag values, compute feasible death forecast Saturdays
-  saturdays <- weekdays(deaths_[,"date"]) == "Saturday"
-  deaths_sat <- deaths_[saturdays & deaths_[,"date"] >= (start_after_rolsum+lag),]
-  
-  # compute lagged cases
-  cases_lagged_dates <- deaths_sat[,"date"]-lag
-  cases_lagged <- cases_[cases_[,"date"] %in% cases_lagged_dates,]
-  
-  # get time series without dates
-  deaths_sat_ts <- deaths_sat[,ag]
-  cases_lagged_ts <- cases_lagged[,ag]
-  
-  stopifnot(length(cases_lagged_ts) == length(deaths_sat_ts))
-  print(paste("Fitting on", length(cases_lagged_ts), "data points."))
-  
-  # starting values for optimization
-  if (i >= 2){
-    init_values <- results[i,param_names]
-  } else {
-    init_values <- NA
-  }
-  
-  # compute parameters
-  res <- fit_params(cases_lagged_ts, deaths_sat_ts, init_values)
-  
-  # save results
-  results[i,] <- c(lag, res$par, res$value)
-}
-
-overall_results <- results[which.min(results[,"value"]),]
-
-plot(results[,"lag"], results[,"value"], type="b", main = ag)
-
-overall_results
 ```
 
 
 ```{r}
-# calculate death distribution forecast for given date  
-death_forecast <- function(cases_rolsum, fc_date, params, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+#' fit forecast parameters for individual age group on specific training period
+#' parameters to be fitted: lag, size of negat. binom. distr., case fatality rate (cfr)
+#' @param age_group: specific age group to fit parameters for
+#' @param lags: vector of possible values to lag case series against death series
+#' @param cases_frame: data frame of date and age group columns with case values
+#' @param deaths_frame: data frame of date and age group columns with death values
+#' @param start: specific starting date for cases and deaths time series
+#' @param end: specific end date or NA for last entry of time series
+#' @param start_exclude: specific starting date for period to exclude 
+#' @param end_exclude: specific end date for period to exclude
+#' @param window: window size for rolling sums of time series 
+#' @param param_names: names of parameters to be fitted
+#' @param print_plot: whether to print fitting progress and plot results  
+#' @return optimal values of parameters for age group
+fit_params_ag <- function(age_group, lags, cases_frame, deaths_frame, start, end, start_exclude, end_exclude, window, param_names, print_plot=T){
+
+  # set end date to last available date if end == NA 
+  if(is.na(end)){end <- cases_frame[dim(cases_frame)[1],"date"]}
+  
+  # sanity checks
+  if(end<=start){stop("start of training period must be before end of training period")}
+  training_period <- seq(start, end, by="days")
+  
+  if(end_exclude<=start_exclude){stop("start of excluded period must be before end of excluded period")}
+  dates_excluded <- seq(start_exclude, end_exclude, by="days")
+  
+  if(!all(dates_excluded %in% training_period)){stop("not all dates to exclude are contained in training period")}
+  
+  
+  ## filter and rolsum case and death data
+  
+  # truncate data to training period
+  cases_trunc <- cases_frame[cases_frame[,"date"]>=start & cases_frame[,"date"]<=end,]
+  deaths_trunc <- deaths_frame[deaths_frame[,"date"]>=start & deaths_frame[,"date"]<=end,]
+  
+  # subset date and age group
+  cases_ <- cases_trunc[,c("date",ag)]
+  deaths_ <- deaths_trunc[,c("date",ag)]
+  
+  # compute rolling sums; first window-1 dates are excluded
+  start_after_rolsum <- start+window-1
+  cases_[cases_[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(cases_[,ag], window = window)
+  deaths_[deaths_[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(deaths_[,ag], window = window)
+  cases_ <- cases_[cases_[,"date"]>=(start_after_rolsum),]
+  deaths_ <- deaths_[deaths_[,"date"]>=(start_after_rolsum),]
+  
+  
+  # save param values and objective value per lag
+  results <- matrix(data = NA, nrow=length(lags), ncol=length(param_names)+1) 
+  colnames(results) <- c(param_names, "value")
+  
+  for (i in 1:length(lags)){
+    lag <- lags[i]
+  
+    # based on current lag values, compute feasible death forecast Saturdays
+    saturdays <- weekdays(deaths_[,"date"]) == "Saturday"
+    deaths_sat <- deaths_[saturdays & deaths_[,"date"] >= (start_after_rolsum+lag),]
+    
+    # compute lagged cases corresponding to deaths on saturday
+    cases_lagged_dates <- deaths_sat[,"date"]-lag
+    cases_lagged <- cases_[cases_[,"date"] %in% cases_lagged_dates,]
+    
+    ## exclusion of time period
+    # exclude deaths and cases based on deaths in exclusion period
+    # (also captures cases before period that correspond to deaths in period)
+    deaths_sat_ex <- deaths_sat[!(deaths_sat[,"date"] %in% dates_excluded),]
+    cases_lagged_ex <- cases_lagged[!(deaths_sat[,"date"] %in% dates_excluded),]
+    # exclude deaths and cases based on cases in exclusion period
+    # (also captures deaths after period that correspond to cases in period)
+    deaths_sat_ex <- deaths_sat_ex[!(cases_lagged_ex[,"date"] %in% dates_excluded),]
+    cases_lagged_ex <- cases_lagged_ex[!(cases_lagged_ex[,"date"] %in% dates_excluded),]
+    
+    # get time series without dates
+    deaths_sat_ts <- deaths_sat[,ag]
+    cases_lagged_ts <- cases_lagged[,ag]
+    
+    stopifnot(length(cases_lagged_ts) == length(deaths_sat_ts))
+    if(print_plot){print(paste("Fitting on", length(cases_lagged_ts), "data points."))}
+    
+    # starting values for optimization
+    if (i >= 2){
+      init_values <- results[i,c("size", "cfr")]
+    } else {
+      init_values <- NA
+    }
+    
+    # compute parameters
+    res <- fit_params(cases_lagged_ts, deaths_sat_ts, init_values)
+    
+    # save results
+    results[i,] <- c(lag, res$par, res$value)
+  }
+  
+  ag_best_params <- results[which.min(results[,"value"]),]
+  
+  if(print_plot){print(results)}
+  
+  if(print_plot){plot(results[,"lag"], results[,"value"], type="b", main = ag)}
+  
+  if(print_plot){print(ag_best_params)}
+  
+  resturn_list <- list("ag_best_params"=ag_best_params, "processed_cases"=cases_)
+  
+  return(resturn_list)
+}
+```
+
+## calculate best param values for ONE age group
+
+```{r}
+## function arguments ########
+# age group
+ag_nr <- 6
+ag <- age_groups[ag_nr]
+# set of lags to optimize over
+lags <- 10:35
+# window for rolling sum (smoothing)
+window_size <- 7
+# select training period 
+start <- as.Date("2020-11-01")
+end <- as.Date("2021-02-01") #NA # give exact date or NA to choose end of time series
+# exclude sequence of dates
+start_exclude <- as.Date("2020-12-20")
+end_exclude <- as.Date("2021-01-22")
+# names of parameters to be fitted
+# lag and size are essential; case fatality rate could be complemented by other covariates
+param_names <- c("lag", "size", "cfr") # dim of is needed later 
+############################
+
+ret <- fit_params_ag(age_group = ag, lags = lags, 
+                    cases_frame = cases_wide, deaths_frame = deaths_wide,
+                    start = start, end = end, 
+                    start_exclude = start_exclude, end_exclude = end_exclude,
+                    window = window_size, param_names = param_names, print_plot = T)
+ret$ag_best_params
+
+```
+
+## calculate best param values for SEVERAL interesting age groups
+
+```{r}
+## function arguments ########
+# age groups
+ags <- c("A35-A59", "A60-A79", "A80+")
+# set of lags to optimize over
+lags <- 18:22
+# window for rolling sum (smoothing)
+window_size <- 7
+# select training period 
+start <- as.Date("2020-11-01")
+end <- as.Date("2021-02-01") #NA # give exact date or NA to choose end of time series
+# exclude sequence of dates
+start_exclude <- as.Date("2020-12-20")
+end_exclude <- as.Date("2021-01-22")
+# names of parameters to be fitted
+# lag and size are essential; case fatality rate could be complemented by other covariates
+param_names <- c("lag", "size", "cfr") # dim of is needed later 
+############################
+
+
+# store best params for all considered groups
+best_params <- matrix(nrow = length(ags), ncol = 1+length(param_names)+1)
+colnames(best_params) <- c("age_group", param_names, "value")
+
+# store processed (date filtered, age selected, rolsummed) case data
+processed_case_data <- list()
+
+# TODO: write data_processing function that filters date, selects age and rolsum
+
+# iterate over age groups
+for (i in 1:length(ags)){
+  ag <- ags[i]
+  ret <- fit_params_ag(age_group = ag, lags = lags, 
+                      cases_frame = cases_wide, deaths_frame = deaths_wide,
+                      start = start, end = end, 
+                      start_exclude = start_exclude, end_exclude = end_exclude,
+                      window = window_size, param_names = param_names, print_plot = T)
+  best_params[i,"age_group"] <- ag
+  best_params[i,-1] <- ret$ag_best_params
+} 
+
+best_params
+
+```
+
+
+
+```{r}
+# calculate death number negat. binom. dist. for given forecast date for one age group
+#' @param processed_cases: case data in frame that 
+#' @param
+#' @param
+#' @param
+#' @param
+#' @return mu and size, parameters of negative binomial distribution of forecast date
+deaths_nb_dist_ag <- function(processed_cases, fc_date, params, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
 
   # unpack parameters
   lag <- params[1]
@@ -230,12 +344,16 @@ death_forecast <- function(cases_rolsum, fc_date, params, p = c(0.01, 0.025, 1:1
   q <- qnbinom(p, mu = mu, size = size)
   names(q) <- p 
   
-  return(q)
+  deaths_nb_dist_params <- list(mu=mu, size=size)
+  
+  return()
 }
 
-# test forecast
+# compute forecast
+hor <- 18 # forecast horizon
 params <- unname(overall_results[-length(overall_results)])
-fc_date <- "2021-02-06"
+fc_date <- as.Date(end + hor)
+fc_date
 fc <- death_forecast(cases_, fc_date, params)
 fc
 

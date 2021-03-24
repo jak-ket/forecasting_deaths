@@ -24,10 +24,13 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
 * What do negative case and death data mean? due to corrections
 * Is gender relevant? could be extracted and aggregated from direct RKI data
 
-## Tasks
-* time series: exclude christmas 20.12.2020-22.1.
+## PRIO tasks 
+* choose relevant age strata: "A35-A59"   "A60-A79"   "A80+"
+* formulate functions and loop estimation over relevant age strata 
 * aggregate age stratified forecasts: can take mean of mu, but have to estimate size
 * backtesting and comparison with predictions of other models
+
+## other tasks
 * how to handle unbekannt category?
 * literature: 
     * how ist lag length between causal relation between cases and deaths decided?
@@ -37,6 +40,7 @@ Use historical data on the COVID-19 pandemic to forecast deaths in Germany
     * research time hosp -> death (Daniel: data driven RKI)
 
 ## Done
+* time series: exclude christmas 20.12.2020-22.1.
 * subset >sep.2020 approx.
 * fat_rate über Zeit plotten
 * paper section 2
