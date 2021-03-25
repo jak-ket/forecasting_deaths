@@ -274,6 +274,31 @@ fit_params_ag <- function(age_group, lags, cases_frame, deaths_frame, start, end
 ## calculate best param values for ONE age group
 
 ```{r}
+# select training period 
+start <- as.Date("2020-11-01")
+end <- as.Date("2021-02-01") #NA # give exact date or NA to choose end of time series
+# exclude sequence of dates
+start_exclude <- as.Date("2020-12-20")
+end_exclude <- as.Date("2021-01-22")
+# window for rolling sum (smoothing)
+window <- 7
+# set of lags to optimize over
+lags <- 15:25
+```
+
+
+```{r}
+
+# PROBLEM. ROLSUM ONLY FOR ONE AG
+
+# get filtered and rolsummed data for all age groups
+prepared_data <- prepare_data(cases_wide, deaths_wide, start, end, window)
+processed_cases <- prepared_data$cases
+processed_deaths <- prepared_data$deaths
+```
+
+
+```{r}
 ## function arguments ########
 # age group
 ag_nr <- 6
@@ -447,8 +472,6 @@ start_after_rolsum <- start+window-1
 deaths_truth <- deaths_wide[deaths_wide[,"date"] >= start &  deaths_wide[,"date"] <= fc_date,c("date",ag)]
 deaths_truth[deaths_truth[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(deaths_truth[,ag], window = window)
 
-
-
 # deaths_w_fc <- rbind(deaths_, c(fc_date, fc["0.5"]))
 dates_ <- c(deaths_[dim(deaths_)[1],"date"], fc_date)
 upper_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.99"])
@@ -546,73 +569,115 @@ true_death_sums <- rowSums(true_deaths)
 ## based on pooled truth deaths and pooled mus, fit size param of pooled nb distr
 source("functions.R")
 opt <- estimate_size_all_ages(x=true_death_sums, mu=mu_sums)
-size <- opt$size
-size
+size_pooled <- opt$size
+size_pooled
 
 ```
 
 ## compute pooled forecast
 
 ```{r}
-#' @param forecast_date: date for estimating death distribution
-#' @param processed_cases:
-#' @param lags:
-#' @param cfrs: 
-#' @param size: 
-#' @return: pooled forecast distribution
+# calculate pooled forecast based on multiple age groups 
+#' @param fc_date: date for estimating death distribution
+#' @param ags: age groups for cumulating forecast
+#' @param size_pooled: size parameter of pooled negat binom distrib
+#' @param levels: quantile levels to return
+# @param cases_frame deaths_frame, start, end, window: params for data preparation
+#' @return: quantile levels of pooled forecast distribution
+calc_forecast <- function(fc_date, ags, best_params, size_pooled, cases_frame, deaths_frame, start, end, window, levels=c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+  
+  fc_mus <- numeric(length = length(ags))
 
-
-for(i in 1:length(ags)){
-  ag <- ags[i]
-  mus_ag <- calc_forecast_ag
+  for(i in 1:length(ags)){
+    ag <- ags[i] # age group
+    lag = best_params[i,"lag"]
+    cfr = best_params[i,"cfr"]
+    
+    # get case rolsum data
+    processed_data <- prepare_data(ag = ag, cases_frame = cases_wide, deaths_frame = deaths_wide, start = start, end = end, window = window)
+    processed_cases <- processed_data$cases
+    
+    end_date <- processed_cases[dim(processed_cases)[1],"date"]
+    lag_date <- as.Date(fc_date) - lag
+    stopifnot(lag_date <= end_date) # can only forecast lag days into future
+    
+    case_count <- processed_cases[processed_cases[,"date"]==lag_date,ag]
+    
+    # compute death forecast
+    mu_ag <- cfr * case_count
+    fc_mus[i] <- mu_ag
+  }
+  
+  mu_pooled <- sum(fc_mus)
+  
+  fc_quantiles <- qnbinom(p = levels, mu=mu_pooled, size = size_pooled)
+  names(fc_quantiles) <- levels
+  
+  return(fc_quantiles)
 }
 
 ```
 
+# estimate 1 and 2 week ahead forecasts and export in hub format
 
 ```{r}
-# calculate death number negat. binom. dist. for given forecast date for one age group
-#' @param processed_cases: processed case data frame that was used for fitting
-#' @param fc_date: forecast date <= last available case date + lag 
-#' @param params: fitted parameters lag, size and case fatality rate 
-#' @param p: forecast quantile levels 
-#' @return: parameters of nb distribution
-get_nb_params <- function(processed_cases, fc_date, params){
+wks_ahead <- 1:2 # forecast horizon
 
-  # unpack parameters
-  lag <- params["lag"]
-  size <- params["size"]
-  cfr <- params["cfr"]
-  
-  # get lagged case count
-  end_date <- processed_cases[dim(processed_cases)[1],"date"]
-  lag_date <- as.Date(fc_date) - lag
-  stopifnot(lag_date <= end_date) # can only forecast lag days into future
-  case_count <- processed_cases[processed_cases[,"date"]==lag_date,ag]
+## calculate corresponding forecast Saturdays
 
-  # compute death forecast
-  mu <- cfr * case_count
+# get forecast Saturdays after end date 
+future_dates <- seq(end, end+max(wks_ahead)*7+6, by="day")
+sats <- future_dates[weekdays(future_dates) == "Saturday"]
 
-  return(list(mu=mu, size=size))
+if(weekdays(end) %in% c("Saturday", "Sunday", "Monday")){
+  # 1wk ahead is on next Saturday 
+  fc_dates <- sats[-length(sats)]  
+} else {
+  # 1wk ahead is on Saturday after next Saturday
+  fc_dates <- sats[-1]
 }
 
-# gets params of nb dist and calculates quantile forecast
-#' @param 
-#' @param 
-#' @param 
-#' @return: 
-calc_forecast <- function(mu, size, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+## calculate forecasts
+levels <- c(0.01, 0.025, 1:19/20, 0.975, 0.99)
+
+# store quantile forecasts directly in final format table
+col_names <- c("forecast_date", "target", "target_end_date", "location", "location_name", "type", "quantile", "value")
+entries_per_date <- length(levels)+1 # quantile forecasts + median as point forecast
+fc_table <- data.frame(matrix(nrow = (entries_per_date)*length(wks_ahead), ncol = length(col_names)))
+colnames(fc_table) <- col_names
+
+# fill in a priori knowledge for all rows / forecast dates
+fc_table[,"forecast_date"] <- end
+fc_table[,"location"] <- "GM"
+fc_table[,"location_name"] <- "Germany"
+fc_table[,"type"] <- rep(c(rep("quantile", length(levels)), "point"), length(wks_ahead))
+fc_table[,"quantile"] <- rep(c(levels, "NA"), length(wks_ahead))
+
+for(i in 1:length(wks_ahead)){
+  wk_ahead <- wks_ahead[i]
+  fc_date <- fc_dates[i]
   
-  # get quantiles according to estimated negative binomial distribution
-  q <- qnbinom(p, mu = mu, size = size)
-  names(q) <- p 
+  # calculate forecast quantiles for current date
+  fc_quantiles <- calc_forecast(fc_date = fc_date, best_params = best_params, ags = ags, size_pooled = size_pooled, ...)
   
-  return(q)
+  # row indices for current forecast date in fc_table
+  row_indices <- ((i - 1)*entries_per_date + 1):(i*entries_per_date)
+    
+  # complement data frame
+  fc_table[row_indices,"target"] <- rep(paste(wk_ahead, "wk ahead inc death"), entries_per_date)
+  fc_table[row_indices,"target_end_date"] <- fc_date
+  fc_table[row_indices,"value"] <- c(fc_quantiles, fc_quantiles["0.5"])
+  
 }
+
+
+## visualize forecasts
+
 ```
 
 
-## put forecast in hub format
+
+## put forecast in 
 
 
 
