@@ -68,7 +68,53 @@ calc_fat_rate <- function(deaths, cases, avg=T){
 }
 
 ###################################
-# 
+# Johannes Bracher, March 2021
 ###################################
 
+#' Evaluate WIS of a negative binomial distribution
+#' @param x the vector of observations
+#' @param size the vector of size parameters of the negative binomial distribution
+#' @param mu the vector of expectations of the negative binomial distribution
+#' @param p the vector of quantile levels used in the computation of the WIS
+wis_nb <- function(x, size, mu, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+  # check input
+  # print(paste(x, mu, size))
+  if(any(mu <= 0) | any(size <= 0)) stop("mu and size need to be positive.")
+  if(length(mu) == 1) mu <- rep(mu, length(x))
+  if(length(size) == 1) size <- rep(size, length(x))
+  if(length(mu) != length(x) | length(size) != length(x)) stop("mu and size need to be either of length 1 or the same length as x.")  
+  # function to evaluate wis for x[i] and parameters mu[i] and size[i]
+  wis_nb.i <- function(i){
+    # compute quantiles
+    q <- qnbinom(p, mu = mu[i], size = size[i])
+    # evaluate WIS (see eq 4 here https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1008618#sec001)
+    mean(2*((x[i] <= q) - p)*(q - x[i]))
+  }  
+  # apply to vector
+  sapply(seq_along(x), wis_nb.i)
+}
+
+#' Fit an nb distribution via minimum WIS.
+#' @param x a vector of realizations
+estimate_size_all_ages <- function(x, mu, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+  # evaluate wis
+  # par contains log-transformed parameters (vector with elements named "log_mu" and "log_size")
+  wis <- function(log_size){
+    size <- exp(log_size)
+    sum(wis_nb(x = x, mu = mu, size = size, p = p))
+  }  
+  
+  # define starting values:
+  log_size_start <- 3 # not sure how to choose clever starting value  
+  log_size_lower <- log(1)
+  log_size_upper <- log(10000)
+  interval <- c(log_size_lower, log_size_upper)
+
+  # run optimizer:
+  opt <- optimize(f = wis, interval=interval)
+  size <- exp(opt$minimum)
+  optim_value <- opt$objective 
+
+  return(list(size = size, value = optim_value))
+}
 

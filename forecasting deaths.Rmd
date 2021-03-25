@@ -7,7 +7,7 @@ output: html_notebook
 ```{r}
 # set up
 setwd("~/forecast_hub/forecasting_deaths")
-Sys.setlocale(category = "LC_TIME", locale = "English")
+Sys.setlocale(category = "LC_TIME", locale = "English") # control language
 source("functions.R")
 ```
 
@@ -160,11 +160,11 @@ prepare_data <- function(ag, cases_frame, deaths_frame, start, end, window){
   cases_ <- cases_[cases_[,"date"]>=(start_after_rolsum),]
   deaths_ <- deaths_[deaths_[,"date"]>=(start_after_rolsum),]
   
-  return(list("cases"=cases_, "deaths"=deaths_))
+  return(list(cases=cases_, deaths=deaths_))
 
 }
 
-#' get training tuples (lagged case, death on Saturday) 
+#' get time series of deaths on Saturday and lagged cases
 #' @param lag: number of days cases are lagged against deaths
 #' @param cases_: cases returned from function prepare_data
 #' @param deaths_: deaths returned from function prepare_data
@@ -172,9 +172,9 @@ prepare_data <- function(ag, cases_frame, deaths_frame, start, end, window){
 #' @param start_after_rolsum: starting date after taking the rolsum
 #' @return training tuples (cases lagged by lag param, feasible deaths on Saturday) 
 get_lagged_train_data <- function(lag, cases_, deaths_, dates_excluded, start_after_rolsum){
+  
   # based on current lag values, compute feasible death forecast Saturdays
   saturdays <- weekdays(deaths_[,"date"]) == "Saturday"
-  start_after_rolsum <- 
   deaths_sat <- deaths_[saturdays & deaths_[,"date"] >= (start_after_rolsum+lag),]
   
   # compute lagged cases corresponding to deaths on saturday
@@ -195,7 +195,7 @@ get_lagged_train_data <- function(lag, cases_, deaths_, dates_excluded, start_af
   cases_lagged_ts <- cases_lagged[,-1]
   deaths_sat_ts <- deaths_sat[,-1]
   
-  return(list("cases"=cases_lagged_ts, "deaths"=deaths_sat_ts))
+  return(list(cases=cases_lagged_ts, deaths=deaths_sat_ts))
 }
 ```
 
@@ -309,7 +309,7 @@ ag_best_params
 # age groups
 ags <- c("A35-A59", "A60-A79", "A80+")
 # set of lags to optimize over
-lags <- 18:18
+lags <- 15:35
 # window for rolling sum (smoothing)
 window <- 7
 # select training period 
@@ -325,8 +325,10 @@ param_names <- c("lag", "size", "cfr") # dim of is needed later
 
 
 # store best params for all considered groups
-best_params <- matrix(nrow = length(ags), ncol = 1+length(param_names)+1)
-colnames(best_params) <- c("age_group", param_names, "value")
+best_params <- matrix(nrow = length(ags), ncol = length(param_names)+1)
+colnames(best_params) <- c(param_names, "value")
+row.names(best_params) <- ags
+
 
 # iterate over age groups
 for (i in 1:length(ags)){
@@ -336,8 +338,7 @@ for (i in 1:length(ags)){
                     start = start, end = end, 
                     start_exclude = start_exclude, end_exclude = end_exclude,
                     window = window, param_names = param_names, print_plot = T)
-  best_params[i,"age_group"] <- ag
-  best_params[i,-1] <- ag_best_params
+  best_params[i,] <- ag_best_params
 } 
 
 best_params
@@ -347,43 +348,68 @@ best_params
 
 
 ```{r}
-# calculate death number negat. binom. dist. for given forecast date for one age group
-#' @param processed_cases: processed case data frame that was used for fitting
-#' @param fc_date: forecast date <= last available case date + lag 
-#' @param params: fitted parameters lag, size and case fatality rate 
-#' @param p: forecast quantile levels 
-#' @return: parameters of nb distribution
-get_nb_params <- function(processed_cases, fc_date, params){
+# # calculate death number negat. binom. dist. for given forecast date for one age group
+# #' @param processed_cases: processed case data frame that was used for fitting
+# #' @param fc_date: forecast date <= last available case date + lag 
+# #' @param params: fitted parameters lag, size and case fatality rate 
+# #' @param p: forecast quantile levels 
+# #' @return: parameters of nb distribution
+# get_nb_params <- function(processed_cases, fc_date, params){
+# 
+#   # unpack parameters
+#   lag <- params["lag"]
+#   size <- params["size"]
+#   cfr <- params["cfr"]
+#   
+#   # get lagged case count
+#   end_date <- processed_cases[dim(processed_cases)[1],"date"]
+#   lag_date <- as.Date(fc_date) - lag
+#   stopifnot(lag_date <= end_date) # can only forecast lag days into future
+#   case_count <- processed_cases[processed_cases[,"date"]==lag_date,ag]
+# 
+#   # compute death forecast
+#   mu <- cfr * case_count
+# 
+#   return(list(mu=mu, size=size))
+# }
+# 
+# # gets params of nb dist and calculates quantile forecast
+# #' @param 
+# #' @param 
+# #' @param 
+# #' @return: 
+# calc_forecast <- function(mu, size, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+#   
+#   # get quantiles according to estimated negative binomial distribution
+#   q <- qnbinom(p, mu = mu, size = size)
+#   names(q) <- p 
+#   
+#   return(q)
+# }
 
-  # unpack parameters
-  lag <- params[1]
-  size <- params[2]
-  cfr <- params[3]
+# calculate death number distribution for forecast date for one age group
+#' @param forecast_date: date for estimating death distribution for one age group
+#' @param processed_cases: processed case data frame that was used for fitting
+#' @param lag: estimated lag parameter for age group
+#' @param size: estimated size parameter for age group
+#' @param cfr: estimated case fatality rate for age group
+#' @param p: forecast quantile levels
+#' @return: parameters of nb distribution and estimated quantiles 
+calc_forecast_ag <- function(forecast_date, processed_cases, lag, size, cfr, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
   
   # get lagged case count
   end_date <- processed_cases[dim(processed_cases)[1],"date"]
-  lag_date <- as.Date(fc_date) - lag
+  lag_date <- as.Date(forecast_date) - lag
   stopifnot(lag_date <= end_date) # can only forecast lag days into future
   case_count <- processed_cases[processed_cases[,"date"]==lag_date,ag]
 
   # compute death forecast
   mu <- cfr * case_count
-
-  return(list(mu=mu, size=size))
-}
-
-# gets params of nb dist and calculates quantile forecast
-#' @param 
-#' @param 
-#' @param 
-#' @return: 
-calc_forecast <- function(mu, size, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
-  
   # get quantiles according to estimated negative binomial distribution
   q <- qnbinom(p, mu = mu, size = size)
   names(q) <- p 
   
-  return(q)
+  return(list(quantiles=q, mu=mu, size=size))
 }
 ```
 
@@ -398,11 +424,13 @@ fc_date
 
 processed_data <- prepare_data(ag = ag, cases_frame = cases_wide, deaths_frame = deaths_wide, start = start, end = end, window = window)
 
-nb_params <- get_nb_params(processed_cases = processed_data$cases, 
-                           fc_date = fc_date, params = ag_best_params)
+# nb_params <- get_nb_params(processed_cases = processed_data$cases, 
+#                            fc_date = fc_date, params = ag_best_params)
+# 
+# forecast <- calc_forecast(mu = nb_params$mu, size = nb_params$size)
+forecast <- calc_forecast_ag(forecast_date = fc_date, processed_cases = processed_data$cases, lag = ag_best_params["lag"], size = ag_best_params["size"], cfr = ag_best_params["cfr"])
 
-forecast <- calc_forecast(mu = nb_params$mu, size = nb_params$size)
-fc <- forecast
+fc <- forecast$quantiles
 
 ```
 
@@ -453,15 +481,136 @@ legend('topleft',legend=c("True deaths", paste("True cases lagged by",lag)), col
 ```{r}
 ## compute death predictions (mus for nb distr) for every age group for every date in training
 
-# get death numbers for training saturdays and cases lagged by estimated lag
+# set up
+dates_excluded <- seq(start_exclude, end_exclude, by="days")
+start_after_rolsum <- start+window-1
+print_plot <- T
 
-# calculate death forecast (=mu) based on estimated cfr
+# number of training pairs differs with optimal lag estimate
+# age group with maximum number of lags has fewest training points (min_train_length)
+# min_train_length will determine number of mus that are summed up to form pooled distr
 
+# get number of training points for age group with maimal lag
+max_lag <- max(best_params[,"lag"])
+
+ag_max_lag <- row.names(best_params)[which.max(best_params[,"lag"])]
+
+prepared_data <- prepare_data(ag = ag_max_lag, cases_frame = cases_wide, deaths_frame = deaths_wide, start = start, end = end, window = window)
+
+max_lag_train_data <- get_lagged_train_data(lag = max_lag, cases_ = prepared_data$cases, deaths_ = prepared_data$deaths, dates_excluded = dates_excluded, start_after_rolsum = start_after_rolsum)
+
+min_train_true_deaths <- max_lag_train_data$deaths
+
+min_train_length <- length(min_train_true_deaths)
+
+# matrix to store mus
+mus <- matrix(nrow=min_train_length, ncol = length(ags))
+colnames(mus) <- paste("mus", ags)
+
+# matrix to store true deaths on Saturdays per age group 
+true_deaths <- matrix(nrow=min_train_length, ncol = length(ags))
+colnames(mus) <- paste("true deaths", ags)
+
+for(i in 1:length(ags)){
+  ag <- ags[i]
+  lag <- best_params[i,"lag"]
+  
+  # get death numbers for training saturdays and cases lagged by estimated lag
+  processed_data <- prepare_data(ag = ag, cases_frame = cases_wide, deaths_frame = deaths_wide, start = start, end = end, window = window)
+  
+  train_data <- get_lagged_train_data(lag = lag, cases_ = processed_data$cases, 
+                                      deaths_ = processed_data$deaths,
+                                      dates_excluded = dates_excluded, 
+                                      start_after_rolsum = start_after_rolsum)
+  
+  # truncate time series to the length of smallest train data
+  cases_lagged_ts <- train_data$cases[1:min_train_length]
+  deaths_sat_ts <- train_data$deaths[1:min_train_length]
+
+  # calculate death forecast (=mu) based on estimated cfr
+  mus_ag <- cases_lagged_ts * best_params[i,"cfr"]
+  
+  true_deaths[,i] <- deaths_sat_ts
+  mus[,i] <- mus_ag
+  # print(mus_ag)
+  
+  if(print_plot){
+    plot(deaths_sat_ts, type="l")
+    points(mus_ag, col="red")
+  }
+}
 ## take sum of mu vectors over age groups (sum for every forecast date)
+mu_sums <- rowSums(mus)
+true_death_sums <- rowSums(true_deaths)
 
 ## based on pooled truth deaths and pooled mus, fit size param of pooled nb distr
+source("functions.R")
+opt <- estimate_size_all_ages(x=true_death_sums, mu=mu_sums)
+size <- opt$size
+size
 
 ```
+
+## compute pooled forecast
+
+```{r}
+#' @param forecast_date: date for estimating death distribution
+#' @param processed_cases:
+#' @param lags:
+#' @param cfrs: 
+#' @param size: 
+#' @return: pooled forecast distribution
+
+
+for(i in 1:length(ags)){
+  ag <- ags[i]
+  mus_ag <- calc_forecast_ag
+}
+
+```
+
+
+```{r}
+# calculate death number negat. binom. dist. for given forecast date for one age group
+#' @param processed_cases: processed case data frame that was used for fitting
+#' @param fc_date: forecast date <= last available case date + lag 
+#' @param params: fitted parameters lag, size and case fatality rate 
+#' @param p: forecast quantile levels 
+#' @return: parameters of nb distribution
+get_nb_params <- function(processed_cases, fc_date, params){
+
+  # unpack parameters
+  lag <- params["lag"]
+  size <- params["size"]
+  cfr <- params["cfr"]
+  
+  # get lagged case count
+  end_date <- processed_cases[dim(processed_cases)[1],"date"]
+  lag_date <- as.Date(fc_date) - lag
+  stopifnot(lag_date <= end_date) # can only forecast lag days into future
+  case_count <- processed_cases[processed_cases[,"date"]==lag_date,ag]
+
+  # compute death forecast
+  mu <- cfr * case_count
+
+  return(list(mu=mu, size=size))
+}
+
+# gets params of nb dist and calculates quantile forecast
+#' @param 
+#' @param 
+#' @param 
+#' @return: 
+calc_forecast <- function(mu, size, p = c(0.01, 0.025, 1:19/20, 0.975, 0.99)){
+  
+  # get quantiles according to estimated negative binomial distribution
+  q <- qnbinom(p, mu = mu, size = size)
+  names(q) <- p 
+  
+  return(q)
+}
+```
+
 
 ## put forecast in hub format
 
