@@ -1,0 +1,123 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# set up
+setwd("~/forecast_hub/forecasting_deaths")
+Sys.setlocale(category = "LC_TIME", locale = "English") # control language
+source("functions.R")
+```
+
+## prepare data
+
+```{r}
+cases_raw <- read.csv("./data-truth/truth_RKI-Incident Cases by Age_Germany.csv")
+deaths_raw <- read.csv("./data-truth/truth_RKI-Incident Deaths by Age_Germany.csv")
+
+# restrict to Germany and useful columns only
+cases <- subset(cases_raw, location_name=="Germany", select=c(date, age_group, value))
+deaths <- subset(deaths_raw, location_name=="Germany", select=c(date, age_group, value))
+
+# reset index
+row.names(cases) <- NULL
+row.names(deaths) <- NULL
+
+# get age groups
+age_groups <- unname(unlist(unique(deaths["age_group"])))
+age_groups
+
+# get time series in wide format / age groups in rows
+cases_wide <- setNames(reshape(cases, idvar="date", timevar="age_group", direction = "wide"), c("date", age_groups))
+deaths_wide <- setNames(reshape(deaths, idvar="date", timevar="age_group", direction = "wide"), c("date", age_groups))
+
+cases_wide$date <- as.Date(cases_wide$date)
+deaths_wide$date <- as.Date(deaths_wide$date)
+
+row.names(cases_wide) <- NULL
+row.names(deaths_wide) <- NULL
+
+# replace NAs with zero
+cases_wide[is.na(cases_wide)] <- 0
+deaths_wide[is.na(deaths_wide)] <- 0
+```
+
+## calculate best param values for ONE age group
+
+```{r}
+## function arguments ########
+# age group
+ag <- "A80+"
+# set of lags to optimize over
+lags <- 17:20
+############################
+
+ag_best_params <- fit_params_ag(age_group = ag, lags = lags, 
+                    processed_cases = processed_cases, 
+                    processed_deaths = processed_deaths,
+                    start = start, end = end,
+                    start_exclude = start_exclude, end_exclude = end_exclude,
+                    param_names = param_names, print_plot = T)
+ag_best_params
+
+```
+
+## forecast for ONE age group
+
+```{r}
+## function arguments ########
+# age group
+# forecast date
+horizon <- 5 
+fc_date <- as.Date(end + horizon)
+############################
+
+
+forecast <- calc_forecast_ag(age_group = ag, forecast_date = fc_date, processed_cases = processed_cases, lag = ag_best_params["lag"], size = ag_best_params["size"], cfr = ag_best_params["cfr"])
+
+fc <- forecast$quantiles
+
+```
+
+## forecast visualization
+
+```{r}
+# visualize forecast
+
+# get processed case and death data
+start_after_rolsum <- start+window-1
+
+deaths_ <- processed_deaths
+
+# truth death data: from start_after_rolsum - fc_date
+deaths_truth <- deaths_wide[deaths_wide[,"date"] >= start &  deaths_wide[,"date"] <= fc_date,c("date",ag)]
+deaths_truth[deaths_truth[,"date"]>=(start_after_rolsum),ag] <- rolling_sum(deaths_truth[,ag], window = window)
+
+# deaths_w_fc <- rbind(deaths_, c(fc_date, fc["0.5"]))
+dates_ <- c(deaths_[dim(deaths_)[1],"date"], fc_date)
+upper_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.99"])
+lower_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.01"])
+
+plot(deaths_truth, ylim=c(min(0, fc["0.01"]), max(as.integer(max(deaths_[,ag])), fc["0.99"])), main=paste(ag, "Death forecast for", fc_date, "based on data until", end), type="l", ylab="")
+points(as.Date(fc_date), fc["0.5"], col="red")
+points(as.Date(fc_date), fc["0.01"], col="red")
+points(as.Date(fc_date), fc["0.99"], col="red")
+poly_dates <- c(deaths_[dim(deaths_)[1],"date"], fc_date, fc_date)
+poly_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.99"], fc["0.01"])
+polygon(poly_dates, poly_values, col=adjustcolor("red",alpha.f=0.2) , border = FALSE)
+lines(dates_, upper_values, col="red")
+lines(dates_, lower_values, col="red")
+
+# add shifted cases
+lag <- ag_best_params[1]
+cases_truth <- cases_wide[cases_wide[,"date"] >= (start-lag) & cases_wide[,"date"] <= (as.Date(fc_date)-lag),c("date",ag)]
+cases_truth[cases_truth[,"date"]>=(start_after_rolsum-lag),ag] <- rolling_sum(cases_truth[,ag], window = window)
+
+scale <- max(deaths_truth[,ag])/max(cases_truth[,ag])*0.5
+lines(cases_truth[,"date"]+lag, cases_truth[,ag]*scale, col="blue")
+
+legend('topleft',legend=c("True deaths", paste("True cases lagged by",lag)), col=c("black", "blue"), lwd=c(1,1))
+
+
+```
