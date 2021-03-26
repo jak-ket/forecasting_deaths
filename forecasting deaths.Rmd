@@ -1,7 +1,11 @@
 ---
-title: "Forecasting deaths"
+title: "Calculate death distribution for multiple age strata"
+author: "Jakob Ketterer"
+date: "March 2021"
 output: html_notebook
 ---
+
+### Calculate forecast distributions for selected age groups, estimate pooled forecast distributions for 1 and 2 weeks, write forecasts to hub format csv, visualize forecasts
 
 
 ```{r}
@@ -73,7 +77,7 @@ deaths_pooled[is.na(deaths_pooled)] <- 0
 # select training period 
 # end: give exact date or NA to choose end of time series
 start <- as.Date("2020-10-01")
-end <- as.Date("2021-03-01") 
+end <- NA #as.Date("2021-03-08") 
 
 # set end date to last available date if end == NA 
 if(is.na(end)){end <- cases_wide[dim(cases_wide)[1],"date"]}
@@ -210,8 +214,9 @@ colnames(quantile_table) <- paste(wks_ahead, "wk ahead inc death")
 row.names(quantile_table) <- levels
 
 # write csv
+fc_folder <- "./data-processed/"
 write.csv(fc_table, 
-          file = paste0(end,"-Germany-", "KIT-model",".csv"), 
+          file = paste0(fc_folder, end,"-Germany-", "KIT-model",".csv"), 
           quote = F, row.names = F)
 
 ```
@@ -237,9 +242,9 @@ for(i in 1:length(fc_dates)){
   
   # plot truth data
   title <- paste(wk_ahead, "wk ahead inc death forecast for", fc_date, "(data until", end, ")")
-  ylab = "inc deaths"
   ylim <- c(min(0, fc["0.01"]), max(as.integer(max(deaths_truth_[,"value"])), fc["0.99"]))
-  plot(deaths_truth_, main=title, ylim=ylim, type="l", ylab="")
+  xlim <- c(fc_date-60, fc_date)
+  plot(deaths_truth_, main=title, xlim=xlim, ylim=ylim, type="l", ylab="")
   
   # plot median and forecast 
   points(as.Date(fc_date), fc["0.5"], col="red")
@@ -258,8 +263,6 @@ for(i in 1:length(fc_dates)){
   polygon(poly_dates, poly_values, col=adjustcolor("red",alpha.f=0.2) , border = FALSE)
 
 }
-
-
 ```
 
 

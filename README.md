@@ -1,61 +1,58 @@
-# forecasting_deaths
-Use historical data on the COVID-19 pandemic to forecast deaths in Germany
+# Forecasting deaths
+Use historical, age-stratified data on the COVID-19 pandemic to forecast deaths in Germany
+
+Jakob Ketterer and Johannes Bracher
+March 2021
 
 ## Objective
-* forecast incident deaths 
-* in Germany 
-* with historical case, death and hospitalization data
-* age-stratification: <30, 10-year steps, >80
-* use sum of daily cases from today and the past 6 days to predict deaths in 1,2,3,4 weeks
-* highly parameterized and readible code, easily modified 
-    * age strata
-* forecasts
-    * Zählregression mit negat binomvert., Autoregression
-    * Parameter: fat_rate, lag
-    * EW mit fallzahlen
-    * Var auch aus Daten
-    * WIS zur Erfassung der Prognosegüte (generalisierter absoluter Fehler)
-    * in sample WIS optimieren
-    * Interzept? wenn keine Fälle, auch keine lagged Tode
-    
+* forecast weekly incident deaths for Germany 
+* using historical case, death (and hospitalization) data
+* fit parameters (lag between cases and deaths, case fatality rate and size parameter for negative binomial distribution) for differenct age strata
+* aggregate age-stratified forecasts to get pooled forecast
 
-## Questions
-* Are there explicit formulations for nb distr. params? Would speed up optimization!
-* What do negative case and death data mean? due to corrections
-* Is gender relevant? could be extracted and aggregated from direct RKI data
+## File overview 
+### Data exploration
+Exploration of correlations between case and death as well as between case/death and ICU/ventilated data
+* exploratory_data_analysis.Rmd
+* functions_data_analysis.R
 
-## PRIO tasks 
-* choose relevant age strata: "A35-A59"   "A60-A79"   "A80+"
-* formulate functions and loop estimation over relevant age strata 
-* aggregate age stratified forecasts: can take mean of mu, but have to estimate size
+### Forecast deaths for individual age stratum
+Estimate parameters and forecast distribution for single age group and visualize forecast
+* forecast_deaths_individual_age_group.Rmd
+* functions.R
+
+### Forecast deaths for selection of age strata
+Calculate forecast distributions for selected age groups, estimate pooled forecast distributions for 1 and 2 weeks, write forecasts to hub format csv, visualize forecasts
+* forecasting deaths.Rmd
+* functions.R
+
+## Folder overview
+* ./data-truth/: contains truth data for estimation
+* ./data-processed/: contains death forecasts in forecast hub format
+
+## Details on approach
+* RKI age strata: "A00-A04", "A05-A14", "A15-A34", "A35-A59", "A60-A79", "A80+", "unbekannt"
+* Key equation: mus = lagged case number * case fatality rate (mu is intermediate death forecast and serves as estimated value for negative binomial forecast distribution)
+* Estimated parameters per age stratum:
+    * lag between cases and deaths
+    * case fatality rate and for negative binomial distribution
+    * size parameter for negative binomial distribution
+* Estimated parameters for all strata:
+    * mu_pooled = sum of age group mus
+    * size_pooled: estimate via minimization of sum of WIS conditioned on true death data and mus during training period
+
+## Future work
+* take ALL age groups (not only the 3 most important) to estimate pooled death forecast
+* extend forecast horizons to 3 and 4 wks ahead (needs extrapolation of case data)
+* more covariates to forecast deaths: ICU/ventilated data
 * backtesting and comparison with predictions of other models
-
-## other tasks
 * how to handle unbekannt category?
+* Is gender relevant? could be extracted and aggregated from direct RKI data
 * literature: 
     * how ist lag length between causal relation between cases and deaths decided?
-    * are there standard groups for age stratification?
     * delay time distributions between exposure, symptom onset, reporting of case,
     hospizalization, death in Germany
-    * research time hosp -> death (Daniel: data driven RKI)
-
-## Done
-* time series: exclude christmas 20.12.2020-22.1.
-* subset >sep.2020 approx.
-* fat_rate über Zeit plotten
-* paper section 2
-* functions for with 1 covariable (lagged cases), deaths, estimate fat_rates
-* minimize wis with lag, fat_rate, size (Überdispersion) param for one age group
-Exploratory analyses:
-- Generate age-stratified plots of cases, hospitalizations (DIVI) and deaths
-- Are clear "shifted" patterns recognizable?
-* exploratory data analysis: evalutate relation between cases, hospitalization and deaths
-
-## Knowledge
-DIVI categories:
-* ICU - intensive care unit (low care and high care)
-* ECMO - Extracorporeal membrane oxygenation
-* Ventilated
+    * research time hosp -> death (data driven RKI)
 
 ## Further concerns / problems
 * DIVI reporting delay: not all hospitals have reported during the first wave (approx. 20.03.2020 - 30.04.2020)

@@ -1,10 +1,14 @@
 ---
-title: "R Notebook"
+title: "Exploratory Data Analysis"
+author: "Jakob Ketterer"
+date: "March 2021"
 output: html_notebook
 ---
 
+### Exploration of correlations between case and death as well as between case/death and ICU/ventilated data
+
 ```{r}
-source("functions.R")
+source("functions_data_analysis.R")
 ```
 
 

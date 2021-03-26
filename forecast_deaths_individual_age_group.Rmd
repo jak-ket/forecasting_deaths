@@ -1,7 +1,12 @@
 ---
-title: "R Notebook"
+title: "Forecasting deaths for individual age stratum"
+author: "Jakob Ketterer"
+date: "March 2021"
 output: html_notebook
 ---
+
+### Estimate parameters and forecast distribution for single age group and visualize forecast
+
 
 ```{r}
 # set up
@@ -50,7 +55,7 @@ deaths_wide[is.na(deaths_wide)] <- 0
 # age group
 ag <- "A80+"
 # set of lags to optimize over
-lags <- 17:20
+lags <- 15:30
 ############################
 
 ag_best_params <- fit_params_ag(age_group = ag, lags = lags, 
@@ -69,7 +74,7 @@ ag_best_params
 ## function arguments ########
 # age group
 # forecast date
-horizon <- 5 
+horizon <- 14
 fc_date <- as.Date(end + horizon)
 ############################
 
@@ -99,7 +104,8 @@ dates_ <- c(deaths_[dim(deaths_)[1],"date"], fc_date)
 upper_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.99"])
 lower_values <- c(deaths_[dim(deaths_)[1],ag], fc["0.01"])
 
-plot(deaths_truth, ylim=c(min(0, fc["0.01"]), max(as.integer(max(deaths_[,ag])), fc["0.99"])), main=paste(ag, "Death forecast for", fc_date, "based on data until", end), type="l", ylab="")
+xlim <- c(fc_date-120, fc_date)
+plot(deaths_truth, xlim=xlim, ylim=c(min(0, fc["0.01"]), max(as.integer(max(deaths_[,ag])), fc["0.99"])), main=paste(ag, "Death forecast for", fc_date, "based on data until", end), type="l", ylab="")
 points(as.Date(fc_date), fc["0.5"], col="red")
 points(as.Date(fc_date), fc["0.01"], col="red")
 points(as.Date(fc_date), fc["0.99"], col="red")
