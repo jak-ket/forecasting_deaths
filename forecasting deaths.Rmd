@@ -11,9 +11,10 @@ Sys.setlocale(category = "LC_TIME", locale = "English") # control language
 source("functions.R")
 ```
 
-## preprocess data
+## preprocess age stratified data
 
 ```{r}
+# age stratified data
 cases_raw <- read.csv("./data-truth/truth_RKI-Incident Cases by Age_Germany.csv")
 deaths_raw <- read.csv("./data-truth/truth_RKI-Incident Deaths by Age_Germany.csv")
 
@@ -43,6 +44,26 @@ row.names(deaths_wide) <- NULL
 cases_wide[is.na(cases_wide)] <- 0
 deaths_wide[is.na(deaths_wide)] <- 0
 ```
+## preprocess pooled data
+
+```{r}
+# age stratified data
+deaths_pooled_raw <- read.csv("./data-truth/truth_RKI-Incident Deaths_Germany.csv")
+
+# restrict to Germany and useful columns only
+deaths_pooled <- subset(deaths_pooled_raw, location_name=="Germany", select=c(date, value))
+
+# reset index
+row.names(deaths_pooled) <- NULL
+
+# date
+deaths_pooled$date <- as.Date(deaths_pooled$date)
+
+# replace NAs with zero
+deaths_pooled[is.na(deaths_pooled)] <- 0
+```
+
+
 
 ## configuration and data preparation
 
@@ -51,8 +72,8 @@ deaths_wide[is.na(deaths_wide)] <- 0
 
 # select training period 
 # end: give exact date or NA to choose end of time series
-start <- as.Date("2020-11-01")
-end <- as.Date("2021-02-01") 
+start <- as.Date("2020-10-01")
+end <- as.Date("2021-03-01") 
 
 # set end date to last available date if end == NA 
 if(is.na(end)){end <- cases_wide[dim(cases_wide)[1],"date"]}
@@ -144,6 +165,9 @@ if(weekdays(end) %in% c("Saturday", "Sunday", "Monday")){
 ## calculate forecasts
 levels <- c(0.01, 0.025, 1:19/20, 0.975, 0.99)
 
+# store quantiles for later visualization
+quantile_table <- matrix(nrow=length(levels), ncol=length(wks_ahead))
+
 # store quantile forecasts directly in final format table
 col_names <- c("forecast_date", "target", "target_end_date", "location", "location_name", "type", "quantile", "value")
 entries_per_date <- length(levels)+1 # quantile forecasts + median as point forecast
@@ -173,9 +197,17 @@ for(i in 1:length(wks_ahead)){
   fc_table[row_indices,"target"] <- rep(paste(wk_ahead, "wk ahead inc death"), entries_per_date)
   fc_table[row_indices,"target_end_date"] <- fc_date
   fc_table[row_indices,"value"] <- c(fc_quantiles, fc_quantiles["0.5"])
+  
+  # store quantiles
+  quantile_table[,i] <- fc_quantiles
 }
 
+# finalize forecast table
 fc_table[,"target_end_date"] <- as.Date(fc_table[,"target_end_date"], origin = '1970-01-01')
+
+# name quantile table
+colnames(quantile_table) <- paste(wks_ahead, "wk ahead inc death")
+row.names(quantile_table) <- levels
 
 # write csv
 write.csv(fc_table, 
@@ -184,8 +216,51 @@ write.csv(fc_table,
 
 ```
 
+## visualize forecasts
+
+```{r}
+# rolsum pooled truth death data
+deaths_pooled_filtered <- deaths_pooled[deaths_pooled[,"date"] >= start,]
+start_after_rolsum <- start+window-1
+deaths_pooled_filtered[deaths_pooled_filtered[,"date"]>=(start_after_rolsum),"value"] <- rolling_sum(deaths_pooled_filtered[,"value"], window = window)
+deaths_pooled_rolsum <- deaths_pooled_filtered
+
+true_deaths_end <- deaths_pooled_rolsum[deaths_pooled_rolsum[,"date"]==end,"value"]
+
+for(i in 1:length(fc_dates)){
+  fc_date <- fc_dates[i]
+  fc <- quantile_table[,i]
+  wk_ahead <- wks_ahead[i]
+  
+  # get true death data until fc_date
+  deaths_truth_ <- deaths_pooled_rolsum[deaths_pooled_rolsum[,"date"] >= (fc_date-60) & deaths_pooled_rolsum[,"date"] <= fc_date,]
+  
+  # plot truth data
+  title <- paste(wk_ahead, "wk ahead inc death forecast for", fc_date, "(data until", end, ")")
+  ylab = "inc deaths"
+  ylim <- c(min(0, fc["0.01"]), max(as.integer(max(deaths_truth_[,"value"])), fc["0.99"]))
+  plot(deaths_truth_, main=title, ylim=ylim, type="l", ylab="")
+  
+  # plot median and forecast 
+  points(as.Date(fc_date), fc["0.5"], col="red")
+  points(as.Date(fc_date), fc["0.01"], col="red")
+  points(as.Date(fc_date), fc["0.99"], col="red")
+  
+  dates_ <- c(end, fc_date)
+  
+  upper_values <- c(true_deaths_end, fc["0.99"])
+  lower_values <- c(true_deaths_end, fc["0.01"])
+  lines(dates_, upper_values, col="red")
+  lines(dates_, lower_values, col="red")
+  
+  poly_dates <- c(end, fc_date, fc_date)
+  poly_values <- c(true_deaths_end, fc["0.99"], fc["0.01"])
+  polygon(poly_dates, poly_values, col=adjustcolor("red",alpha.f=0.2) , border = FALSE)
+
+}
 
 
+```
 
 
 
